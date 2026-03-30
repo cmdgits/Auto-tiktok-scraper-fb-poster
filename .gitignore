@@ -6,10 +6,15 @@
 # Bỏ qua thư mục chứa video (Giả sử bạn lưu video vào thư mục tên là 'downloads' hoặc 'videos')
 downloads/
 videos/
+# Bỏ qua toàn bộ thư mục database
+database/
 
 # Bỏ qua file chứa mật khẩu/biến môi trường
-.env
-config.ini
+*.env
+*.config.ini
+
+# NGOẠI TRỪ: Vẫn cho phép đẩy các file mẫu (dấu ! nghĩa là ngoại lệ)
+!*.env.example
 
 # Bỏ qua các file rác sinh ra khi chạy Python
 __pycache__/
