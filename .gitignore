@@ -1,21 +1,14 @@
-# Bỏ qua các file video tải về
-*.mp4
-*.avi
-*.mkv
-
-# Bỏ qua thư mục chứa video (Giả sử bạn lưu video vào thư mục tên là 'downloads' hoặc 'videos')
-downloads/
-videos/
-# Bỏ qua toàn bộ thư mục database
+# Chặn thư mục chứa Database
 database/
 
-# Bỏ qua file chứa mật khẩu/biến môi trường
-*.env
-*.config.ini
+# Chặn thư mục chứa video tải về
+videos_storage/
 
-# NGOẠI TRỪ: Vẫn cho phép đẩy các file mẫu (dấu ! nghĩa là ngoại lệ)
+# Chặn các file chứa biến môi trường thật
+*.env
 !*.env.example
 
-# Bỏ qua các file rác sinh ra khi chạy Python
+# Chặn các thư mục rác của Python/Hệ điều hành
 __pycache__/
 *.pyc
+.DS_Store
