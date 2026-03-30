@@ -1,0 +1,16 @@
+# Bỏ qua các file video tải về
+*.mp4
+*.avi
+*.mkv
+
+# Bỏ qua thư mục chứa video (Giả sử bạn lưu video vào thư mục tên là 'downloads' hoặc 'videos')
+downloads/
+videos/
+
+# Bỏ qua file chứa mật khẩu/biến môi trường
+.env
+config.ini
+
+# Bỏ qua các file rác sinh ra khi chạy Python
+__pycache__/
+*.pyc

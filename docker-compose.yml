@@ -1,0 +1,188 @@
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: social_db
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 45s
+    logging: *default-logging
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: adminpassword
+      POSTGRES_DB: social_auto
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./database:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d social_auto"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  backend:
+    build: ./backend
+    container_name: social_backend
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 45s
+    env_file:
+      - path: ./backend/runtime.env.example
+        required: true
+      - path: ./backend/runtime.env
+        required: false
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    logging: *default-logging
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./videos_storage:/app/downloads
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://admin:adminpassword@db/social_auto
+      - DOWNLOAD_DIR=/app/downloads
+      - ADMIN_PASSWORD=admin123
+      - DEFAULT_ADMIN_USERNAME=admin
+      - DEFAULT_ADMIN_DISPLAY_NAME=Quản trị viên
+      - JWT_SECRET=
+      - TOKEN_ENCRYPTION_SECRET=
+      - AUTH_TOKEN_EXPIRE_MINUTES=480
+      - CORS_ALLOW_ORIGINS=http://localhost:5173
+      - PASSWORD_MIN_LENGTH=8
+      - SCHEDULER_INTERVAL_MINUTES=1
+      - TASK_QUEUE_POLL_SECONDS=5
+      - TASK_RETRY_BASE_SECONDS=15
+      - TASK_RETRY_MAX_SECONDS=300
+      - TASK_LOCK_STALE_SECONDS=300
+      - WORKER_STALE_SECONDS=30
+      - WORKER_BATCH_SIZE=3
+      - EXTERNAL_HTTP_TIMEOUT=10
+      - HTTP_RETRY_ATTEMPTS=3
+      - HTTP_RETRY_BASE_SECONDS=2
+      - HTTP_RETRY_MAX_SECONDS=20
+      - SCHEDULER_ENABLED=false
+      - AUTO_CREATE_SCHEMA=false
+      - BACKGROUND_JOBS_MODE=dedicated-worker
+      - APP_ROLE=api
+      - LOG_LEVEL=INFO
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).status == 200 else 1)",
+        ]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  worker:
+    build: ./backend
+    container_name: social_worker
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 60s
+    env_file:
+      - path: ./backend/runtime.env.example
+        required: true
+      - path: ./backend/runtime.env
+        required: false
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    logging: *default-logging
+    command: ["sh", "-c", "alembic upgrade head && python -m app.worker.run"]
+    volumes:
+      - ./backend:/app
+      - ./videos_storage:/app/downloads
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://admin:adminpassword@db/social_auto
+      - DOWNLOAD_DIR=/app/downloads
+      - ADMIN_PASSWORD=admin123
+      - DEFAULT_ADMIN_USERNAME=admin
+      - DEFAULT_ADMIN_DISPLAY_NAME=Quản trị viên
+      - JWT_SECRET=
+      - TOKEN_ENCRYPTION_SECRET=
+      - AUTH_TOKEN_EXPIRE_MINUTES=480
+      - CORS_ALLOW_ORIGINS=http://localhost:5173
+      - PASSWORD_MIN_LENGTH=8
+      - SCHEDULER_INTERVAL_MINUTES=1
+      - TASK_QUEUE_POLL_SECONDS=5
+      - TASK_RETRY_BASE_SECONDS=15
+      - TASK_RETRY_MAX_SECONDS=300
+      - TASK_LOCK_STALE_SECONDS=300
+      - WORKER_STALE_SECONDS=30
+      - WORKER_BATCH_SIZE=3
+      - EXTERNAL_HTTP_TIMEOUT=10
+      - HTTP_RETRY_ATTEMPTS=3
+      - HTTP_RETRY_BASE_SECONDS=2
+      - HTTP_RETRY_MAX_SECONDS=20
+      - SCHEDULER_ENABLED=true
+      - AUTO_CREATE_SCHEMA=false
+      - BACKGROUND_JOBS_MODE=dedicated-worker
+      - APP_ROLE=worker
+      - LOG_LEVEL=INFO
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.worker.healthcheck"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+
+  frontend:
+    build: ./frontend
+    container_name: social_frontend
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 20s
+    logging: *default-logging
+    ports:
+      - "5173:80"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "-q",
+          "--spider",
+          "http://127.0.0.1/",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: social_tunnel
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 20s
+    logging: *default-logging
+    network_mode: "service:backend"
+    env_file:
+      - path: ./backend/runtime.env.example
+        required: true
+      - path: ./backend/runtime.env
+        required: false
+    command: tunnel --no-autoupdate run
+    depends_on:
+      backend:
+        condition: service_healthy

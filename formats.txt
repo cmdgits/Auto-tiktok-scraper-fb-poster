@@ -1,0 +1,13 @@
+Ghi chú định dạng video tham khảo
+
+Tệp này dùng để ghi lại thông tin tham khảo về các định dạng video TikTok khi cần kiểm tra thủ công.
+Nếu cần cập nhật lại, hãy lưu bằng UTF-8 và giữ phần mô tả bằng tiếng Việt có dấu.
+
+Ví dụ các cột thường gặp:
+- Mã định dạng
+- Phần mở rộng
+- Độ phân giải
+- Kích thước tệp
+- Giao thức tải
+- Mã hóa hình ảnh
+- Mã hóa âm thanh
