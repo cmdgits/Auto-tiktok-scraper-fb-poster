@@ -15,8 +15,8 @@ import { cx, EmptyState, InfoRow, Panel, StatusPill } from './ui';
 function StepGuideCard({ step, title, detail, tone = 'slate', isCurrent = false }) {
   const toneClass = {
     slate: 'border-slate-200 bg-white',
-    sky: 'border-sky-200 bg-sky-50/60',
-    emerald: 'border-emerald-200 bg-emerald-50/60',
+    sky: 'border-sky-300 bg-sky-50',
+    emerald: 'border-emerald-300 bg-emerald-50',
     amber: 'border-amber-200 bg-amber-50/60',
   }[tone] || 'border-slate-200 bg-white';
 
@@ -36,7 +36,8 @@ function StepGuideCard({ step, title, detail, tone = 'slate', isCurrent = false 
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <div className="text-[13px] font-semibold text-slate-900">{title}</div>
-            {isCurrent ? <StatusPill tone="sky">Nên làm tiếp</StatusPill> : null}
+            {tone === 'emerald' ? <StatusPill tone="emerald">Đã xong</StatusPill> : null}
+            {isCurrent && tone !== 'emerald' ? <StatusPill tone="sky">Nên làm tiếp</StatusPill> : null}
           </div>
           <div className="mt-1 text-[13px] leading-6 text-[var(--text-soft)]">{detail}</div>
         </div>
@@ -189,16 +190,18 @@ export default function SettingsSection({
   const runtimeStepReady = publicWebhookReady && signatureReady && aiReady;
   const pageSetupReady = fbPages.length > 0;
   const verificationStepReady = fbPages.length > 0 && readyPageCount > 0 && pagesNeedingAttention === 0;
-  const nextRecommendedStep = !runtimeStepReady
+  const setupReadyCount = [runtimeStepReady, pageSetupReady, verificationStepReady, readyPageCount > 0]
+    .filter(Boolean)
+    .length;
+  const nextRecommendedStep = setupReadyCount === 4
+    ? null
+    : !runtimeStepReady
     ? '01'
     : !pageSetupReady
       ? '02'
       : !verificationStepReady
         ? '03'
         : '04';
-  const setupReadyCount = [runtimeStepReady, pageSetupReady, verificationStepReady, readyPageCount > 0]
-    .filter(Boolean)
-    .length;
   const setupSequence = [
     {
       step: '01',
