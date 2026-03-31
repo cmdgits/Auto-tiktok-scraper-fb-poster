@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import SessionLocal
-from app.models.models import RuntimeSetting
+from app.models.models import FacebookPage, RuntimeSetting
 from app.services.security import decrypt_secret, encrypt_secret, mask_secret
 
 RUNTIME_ENV_FILE = Path(__file__).resolve().parents[2] / "runtime.env"
@@ -83,6 +83,19 @@ def _normalize_value(value) -> str | None:
     return str(value).strip()
 
 
+def _encode_runtime_env_value(value: str | None) -> str:
+    return str(value or "").replace("\n", "\\n")
+
+
+def _resolve_page_access_token(raw_token: str | None) -> str:
+    if not raw_token:
+        return ""
+    try:
+        return decrypt_secret(raw_token)
+    except ValueError:
+        return raw_token
+
+
 def _decode_record_value(record: RuntimeSetting | None) -> str | None:
     if not record or record.value is None:
         return None
@@ -150,13 +163,31 @@ def build_runtime_settings_payload(db: Session) -> dict:
 
 def write_runtime_env_file(db: Session) -> None:
     resolved_values = {key: resolve_runtime_value(key, db=db) for key in RUNTIME_SETTING_SPECS}
+    pages = db.query(FacebookPage).order_by(FacebookPage.page_id.asc()).all()
     lines = [
         "# Tự sinh từ dashboard quản trị",
         "# Khởi động lại service liên quan sau khi thay đổi nếu cần",
     ]
     for key in RUNTIME_SETTING_SPECS:
-        value = resolved_values[key].replace("\n", "\\n")
+        value = _encode_runtime_env_value(resolved_values[key])
         lines.append(f"{key}={value}")
+    lines.extend(
+        [
+            "",
+            "# Facebook pages synced from dashboard",
+            "# Warning: page access tokens are written as plain text by request",
+            f"FB_PAGE_COUNT={len(pages)}",
+            f"FB_PAGE_IDS={','.join(page.page_id or '' for page in pages)}",
+        ]
+    )
+    for index, page in enumerate(pages, start=1):
+        lines.append(f"FB_PAGE_{index}_ID={_encode_runtime_env_value(page.page_id)}")
+        lines.append(f"FB_PAGE_{index}_NAME={_encode_runtime_env_value(page.page_name)}")
+        lines.append(
+            "FB_PAGE_"
+            f"{index}_ACCESS_TOKEN="
+            f"{_encode_runtime_env_value(_resolve_page_access_token(page.long_lived_access_token))}"
+        )
     RUNTIME_ENV_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 

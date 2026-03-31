@@ -2,6 +2,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from app.models.models import Campaign, ConversationStatus, FacebookPage, InboxConversation, InboxMessageLog, InteractionLog, InteractionStatus, TaskQueue, User
+from app.services.runtime_settings import RUNTIME_ENV_FILE
 from app.services.security import encrypt_secret
 from app.services.task_queue import TASK_TYPE_COMMENT_REPLY, TASK_TYPE_MESSAGE_REPLY, enqueue_task
 from app.worker.tasks import process_task_queue
@@ -96,6 +97,35 @@ def test_can_save_page_automation_settings(client, auth_headers, monkeypatch):
     assert page_payload["message_auto_reply_enabled"] is True
     assert page_payload["message_reply_schedule_enabled"] is True
     assert page_payload["message_reply_cooldown_minutes"] == 15
+
+
+def test_runtime_env_contains_saved_page_credentials(client, auth_headers, monkeypatch):
+    from app.api import facebook as facebook_api
+
+    if RUNTIME_ENV_FILE.exists():
+        RUNTIME_ENV_FILE.unlink()
+
+    monkeypatch.setattr(facebook_api, "inspect_page_access", mock_page_access)
+
+    response = client.post(
+        "/facebook/config",
+        headers=auth_headers,
+        json={
+            "page_id": "page-runtime",
+            "page_name": "Trang runtime",
+            "long_lived_access_token": "page-token-runtime",
+        },
+    )
+
+    assert response.status_code == 200
+    assert RUNTIME_ENV_FILE.exists() is True
+
+    runtime_content = RUNTIME_ENV_FILE.read_text(encoding="utf-8")
+    assert "FB_PAGE_COUNT=1" in runtime_content
+    assert "FB_PAGE_IDS=page-runtime" in runtime_content
+    assert "FB_PAGE_1_ID=page-runtime" in runtime_content
+    assert "FB_PAGE_1_NAME=Trang runtime" in runtime_content
+    assert "FB_PAGE_1_ACCESS_TOKEN=page-token-runtime" in runtime_content
 
 
 def test_can_discover_pages_from_user_access_token(client, auth_headers, monkeypatch):
@@ -1093,6 +1123,9 @@ def test_delete_page_is_blocked_when_campaign_still_targets_it(client, auth_head
 
 
 def test_delete_page_cleans_related_logs_and_tasks(client, auth_headers, db_session):
+    if RUNTIME_ENV_FILE.exists():
+        RUNTIME_ENV_FILE.unlink()
+
     page = FacebookPage(
         page_id="page-delete-ok",
         page_name="Trang xóa được",
@@ -1168,6 +1201,12 @@ def test_delete_page_cleans_related_logs_and_tasks(client, auth_headers, db_sess
     assert db_session.query(InboxMessageLog).filter(InboxMessageLog.page_id == "page-delete-ok").count() == 0
     assert db_session.query(InteractionLog).filter(InteractionLog.page_id == "page-delete-ok").count() == 0
     assert db_session.query(TaskQueue).count() == 0
+    assert RUNTIME_ENV_FILE.exists() is True
+
+    runtime_content = RUNTIME_ENV_FILE.read_text(encoding="utf-8")
+    assert "FB_PAGE_COUNT=0" in runtime_content
+    assert "FB_PAGE_IDS=" in runtime_content
+    assert "page-delete-ok" not in runtime_content
 
 
 def test_resolved_conversation_reopens_ai_on_new_customer_message(client, db_session):

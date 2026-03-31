@@ -166,3 +166,26 @@ def test_admin_can_update_runtime_config_and_webhook_uses_new_values(client, aut
     runtime_content = runtime_file.read_text(encoding="utf-8")
     assert "BASE_URL=https://runtime.example.com" in runtime_content
     assert "TUNNEL_TOKEN=runtime-tunnel-token" in runtime_content
+
+
+def test_admin_can_verify_tunnel_token_format_and_extract_raw_token(client, auth_headers):
+    response = client.post(
+        "/system/runtime-config/verify-tunnel-token",
+        headers=auth_headers,
+        json={
+            "tunnel_token": (
+                "cloudflared service install "
+                "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+                "eyJhY2NvdW50X3RhZyI6ImFjY3QtMTIzIiwidHVubmVsX2lkIjoiNmZmNDJhZTItNzY1ZC00YWRmLTgxMTItMzFjNTVjMTU1MWVmIn0."
+                "signature"
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["normalized_token"].startswith("eyJ")
+    assert payload["tunnel_id"] == "6ff42ae2-765d-4adf-8112-31c55c1551ef"
+    assert payload["account_tag"] == "acct-123"
+    assert payload["can_autofill_base_url"] is False

@@ -524,6 +524,7 @@ function App() {
   const [users, setUsers] = useState([]);
   const [runtimeConfig, setRuntimeConfig] = useState(null);
   const [runtimeForm, setRuntimeForm] = useState(DEFAULT_RUNTIME_FORM);
+  const [tunnelVerification, setTunnelVerification] = useState(null);
   const [replyAutomationDrafts, setReplyAutomationDrafts] = useState({});
   const [userForm, setUserForm] = useState({ username: '', display_name: '', password: '', role: 'operator' });
   const [passwordForm, setPasswordForm] = useState({ current_password: '', new_password: '' });
@@ -793,6 +794,7 @@ function App() {
     if (!token || currentUser?.role !== 'admin') {
       setRuntimeConfig(null);
       setRuntimeForm(DEFAULT_RUNTIME_FORM);
+      setTunnelVerification(null);
       return;
     }
 
@@ -803,6 +805,7 @@ function App() {
         if (cancelled) return;
         setRuntimeConfig(payload);
         setRuntimeForm(extractRuntimeForm(payload));
+        setTunnelVerification(null);
       } catch (error) {
         if (!cancelled) showNotice('error', error.message);
       }
@@ -1331,7 +1334,37 @@ function App() {
   };
 
   const handleRuntimeFieldChange = (key, value) => {
+    if (key === 'TUNNEL_TOKEN') setTunnelVerification(null);
     setRuntimeForm((current) => ({ ...current, [key]: value }));
+  };
+
+  const handleVerifyTunnelToken = async () => {
+    const tunnelToken = (runtimeForm.TUNNEL_TOKEN || '').trim();
+    if (!tunnelToken) {
+      showNotice('error', 'Bạn cần nhập TUNNEL_TOKEN trước khi xác thực.');
+      return;
+    }
+
+    setBusy('verify-tunnel-token', true);
+    try {
+      const payload = await requestJson(`${API_URL}/system/runtime-config/verify-tunnel-token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tunnel_token: tunnelToken }),
+      });
+      setTunnelVerification(payload);
+      setRuntimeForm((current) => ({
+        ...current,
+        TUNNEL_TOKEN: payload.normalized_token || current.TUNNEL_TOKEN,
+        BASE_URL: current.BASE_URL || payload.base_url || current.BASE_URL,
+      }));
+      showNotice('success', payload.message);
+    } catch (error) {
+      setTunnelVerification({ ok: false, message: error.message });
+      showNotice('error', error.message);
+    } finally {
+      setBusy('verify-tunnel-token', false);
+    }
   };
 
   const handleRuntimeConfigSave = async (event) => {
@@ -1669,6 +1702,7 @@ function App() {
         runtimeForm,
         runtimeSettings,
         runtimeConfig,
+        tunnelVerification,
         discoveredFbPages,
         selectedDiscoveredPageIds,
         allDiscoveredSelected,
@@ -1698,6 +1732,7 @@ function App() {
         handleDeleteFacebookPage,
         handleRuntimeConfigSave,
         handleRuntimeFieldChange,
+        handleVerifyTunnelToken,
         setRuntimeForm,
       }}
       helpers={{

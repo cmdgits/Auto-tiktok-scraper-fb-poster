@@ -7,6 +7,7 @@ from app.models.models import Campaign, FacebookPage, InboxConversation, InboxMe
 from app.services.observability import record_event
 from app.services.security import decrypt_secret, encrypt_secret, is_secret_encrypted, mask_secret
 from app.services.fb_graph import inspect_page_access, inspect_page_messenger_subscription, inspect_user_pages, subscribe_page_to_app
+from app.services.runtime_settings import write_runtime_env_file
 
 router = APIRouter(prefix="/facebook", tags=["Trang Facebook"])
 PAGE_WEBHOOK_REQUIRED_FIELDS = ("messages", "feed")
@@ -236,6 +237,7 @@ def set_facebook_config(
         )
         db.add(page)
     db.commit()
+    write_runtime_env_file(db)
     record_event(
         "facebook",
         "info",
@@ -335,6 +337,7 @@ def import_facebook_pages(
         )
 
     db.commit()
+    write_runtime_env_file(db)
 
     record_event(
         "facebook",
@@ -410,6 +413,7 @@ def refresh_facebook_pages(
         )
 
     db.commit()
+    write_runtime_env_file(db)
 
     record_event(
         "facebook",
@@ -451,6 +455,7 @@ def get_facebook_config(
 
     if should_commit:
         db.commit()
+        write_runtime_env_file(db)
 
     return normalized_pages
 
@@ -483,6 +488,7 @@ def delete_facebook_page(
     page_name = page.page_name
     db.delete(page)
     db.commit()
+    write_runtime_env_file(db)
 
     record_event(
         "facebook",

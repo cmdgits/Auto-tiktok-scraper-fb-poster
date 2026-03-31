@@ -100,6 +100,7 @@ export default function SettingsSection({
     runtimeForm,
     runtimeSettings,
     runtimeConfig,
+    tunnelVerification,
     discoveredFbPages,
     selectedDiscoveredPageIds,
     allDiscoveredSelected,
@@ -129,6 +130,7 @@ export default function SettingsSection({
     handleDeleteFacebookPage,
     handleRuntimeConfigSave,
     handleRuntimeFieldChange,
+    handleVerifyTunnelToken,
     setRuntimeForm,
   } = actions;
   const {
@@ -160,7 +162,7 @@ export default function SettingsSection({
   const publicWebhookReady = /^https:\/\/.+/i.test(baseUrlValue || '');
   const signatureReady = Boolean(verifyToken && (isRuntimeConfigured('FB_APP_SECRET') || systemInfo?.webhook_signature_enabled));
   const aiReady = isRuntimeConfigured('GEMINI_API_KEY');
-  const optionalConfiguredCount = ['TUNNEL_TOKEN', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID']
+  const optionalConfiguredCount = ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID']
     .filter((key) => isRuntimeConfigured(key))
     .length;
   const isPageReady = (pageItem) => {
@@ -233,6 +235,38 @@ export default function SettingsSection({
         ? `${readyPageCount} fanpage đã sẵn sàng để đưa vào campaign.`
         : 'Khi có ít nhất một fanpage đạt chuẩn, bạn có thể chuyển sang tạo chiến dịch.',
       tone: readyPageCount > 0 ? 'emerald' : 'slate',
+    },
+  ];
+  const runtimeSummaryItems = [
+    {
+      label: 'Webhook công khai',
+      value: webhookUrl || 'Chưa có',
+      emphasis: publicWebhookReady,
+    },
+    {
+      label: 'Mã xác minh',
+      value: verifyToken || 'Chưa có',
+      emphasis: Boolean(verifyToken),
+    },
+    {
+      label: 'Ký webhook',
+      value: signatureReady ? 'Đã cấu hình' : 'Chưa đủ',
+      emphasis: signatureReady,
+    },
+    {
+      label: 'Gemini AI',
+      value: aiReady ? 'Đã cấu hình' : 'Chưa cấu hình',
+      emphasis: aiReady,
+    },
+    {
+      label: 'File runtime',
+      value: runtimeDerived.runtime_env_file || 'backend/runtime.env',
+      emphasis: false,
+    },
+    {
+      label: 'Fanpage sẵn sàng',
+      value: `${readyPageCount}/${fbPages.length || 0}`,
+      emphasis: readyPageCount > 0,
     },
   ];
 
@@ -323,92 +357,35 @@ export default function SettingsSection({
       <Panel
         className="order-3 2xl:col-span-12"
         eyebrow="Bước 2"
-        title="Kết nối fanpage từ app Meta hoặc nhập tay"
-        subtitle="Sau khi hoàn tất URL công khai, webhook và AI, hãy kết nối fanpage. Ưu tiên import hàng loạt từ app Meta; nhập tay chỉ dùng khi thêm riêng lẻ."
+        title="Kết nối fanpage"
+        subtitle="Bắt đầu bằng cách nhập một fanpage với Page Access Token. Nếu bạn quản lý nhiều trang từ cùng một Meta app, dùng mục import nâng cao ở bên phải."
       >
-        <div className="mb-4 grid gap-3 lg:grid-cols-3">
-          <div className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4 text-[13px] leading-6 text-[var(--text-soft)]">
-            <span className="font-semibold text-slate-900">1. Chuẩn bị User Access Token</span>
-            <br />
-            Token nên có quyền `pages_show_list` và các quyền quản trị trang liên quan.
-          </div>
-          <div className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4 text-[13px] leading-6 text-[var(--text-soft)]">
-            <span className="font-semibold text-slate-900">2. Chọn fanpage cần dùng</span>
-            <br />
-            Import một lần nhiều fanpage để hệ thống lấy luôn Page Access Token cho từng trang.
-          </div>
-          <div className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4 text-[13px] leading-6 text-[var(--text-soft)]">
-            <span className="font-semibold text-slate-900">3. Xác minh và đăng ký webhook</span>
-            <br />
-            Sau khi thêm trang, hãy kiểm tra token và bấm đăng ký webhook cho từng fanpage.
-          </div>
-        </div>
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
-          <form onSubmit={handleDiscoverFacebookPages} className="rounded-[24px] border border-slate-200 bg-white p-4">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="text-[14px] font-semibold text-slate-900">Kết nối nhiều trang từ một app Meta</div>
-                <div className="mt-2 text-[13px] leading-6 text-[var(--text-soft)]">
-                  Dùng User Access Token để tải danh sách fanpage bạn đang quản lý, sau đó chọn nhiều trang và import thẳng vào hệ thống.
-                </div>
-              </div>
-              <StatusPill tone="sky">Khuyến nghị</StatusPill>
-            </div>
-            <label className="mt-4 block space-y-2">
-              <span className="text-[13px] font-medium text-slate-700">User Access Token</span>
-              <input
-                required
-                type="password"
-                className={FIELD_CLASS}
-                placeholder="Dán User Access Token có quyền pages_show_list"
-                value={fbImportToken}
-                onChange={(event) => setFbImportToken(event.target.value)}
-                autoComplete="off"
-                spellCheck="false"
-              />
-            </label>
-            <div className="mt-4 mobile-action-stack">
-              <button type="submit" disabled={actionState['discover-pages']} className={BUTTON_PRIMARY}>
-                <Globe2 className="h-4 w-4" />
-                {actionState['discover-pages'] ? 'Đang tải danh sách...' : 'Tải danh sách fanpage'}
-              </button>
-              <button
-                type="button"
-                className={BUTTON_SECONDARY}
-                onClick={handleRefreshFacebookPages}
-                disabled={fbPages.length === 0 || actionState['refresh-pages']}
-              >
-                <RefreshCw className="h-4 w-4" />
-                {actionState['refresh-pages'] ? 'Đang làm mới...' : 'Làm mới token fanpage đã có'}
-              </button>
-              {discoveredFbPages.length > 0 ? (
-                <button type="button" className={BUTTON_GHOST} onClick={handleToggleAllDiscoveredPages}>
-                  {allDiscoveredSelected ? 'Bỏ chọn tất cả' : 'Chọn tất cả'}
-                </button>
-              ) : null}
-            </div>
-            {discoverySubject ? (
-              <div className="mt-4 rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-3 text-[13px] leading-6 text-[var(--text-soft)]">
-                Đang xem fanpage của <span className="font-medium text-slate-900">{discoverySubject.token_subject_name || discoverySubject.token_subject_id}</span>
-              </div>
-            ) : (
-              <div className="mt-4 rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-3 text-[13px] leading-6 text-[var(--text-soft)]">
-                Sau khi tải xong, danh sách fanpage sẽ hiện ở ngay bên dưới để bạn chọn import hàng loạt.
-              </div>
-            )}
-          </form>
-
-          <form onSubmit={handleFbSubmit} className="rounded-[24px] border border-slate-200 bg-white p-4">
+          <form onSubmit={handleFbSubmit} className="rounded-[24px] border border-slate-200 bg-white p-4 sm:p-5">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="text-[14px] font-semibold text-slate-900">Nhập tay fanpage</div>
                 <div className="mt-2 text-[13px] leading-6 text-[var(--text-soft)]">
-                  Dùng khi bạn muốn thêm một fanpage riêng lẻ bằng Page Access Token mà không đi qua bước import hàng loạt.
+                  Đây là luồng chính, phù hợp nhất khi bạn đang cấu hình hệ thống lần đầu hoặc chỉ vận hành một vài fanpage.
                 </div>
               </div>
-              <StatusPill tone="slate">Fallback</StatusPill>
+              <StatusPill tone="sky">Luồng chính</StatusPill>
             </div>
             <div className="mt-4 space-y-4">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-3 text-[13px] leading-6 text-[var(--text-soft)]">
+                  <div className="font-semibold text-slate-900">1. Page ID</div>
+                  Dán đúng mã trang để hệ thống gắn campaign và webhook.
+                </div>
+                <div className="rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-3 text-[13px] leading-6 text-[var(--text-soft)]">
+                  <div className="font-semibold text-slate-900">2. Tên trang</div>
+                  Tên hiển thị giúp bạn dễ chọn đúng fanpage khi vận hành.
+                </div>
+                <div className="rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-3 text-[13px] leading-6 text-[var(--text-soft)]">
+                  <div className="font-semibold text-slate-900">3. Page Access Token</div>
+                  Token trang thật để đăng bài, phản hồi comment và xử lý inbox.
+                </div>
+              </div>
               <label className="block space-y-2">
                 <span className="text-[13px] font-medium text-slate-700">Mã trang</span>
                 <input required type="text" className={FIELD_CLASS} placeholder="Page ID" value={fbForm.page_id} onChange={(event) => setFbForm({ ...fbForm, page_id: event.target.value })} />
@@ -436,78 +413,151 @@ export default function SettingsSection({
               </button>
             </div>
           </form>
-        </div>
 
-        {discoveredFbPages.length > 0 ? (
-          <div className="mt-5 rounded-[24px] border border-slate-200 bg-white p-4">
-            <div className="flex flex-wrap items-start justify-between gap-4">
+          <details className="rounded-[24px] border border-slate-200 bg-slate-50/80 p-4 open:bg-white [&_summary::-webkit-details-marker]:hidden">
+            <summary className="flex cursor-pointer list-none items-start justify-between gap-4">
               <div>
-                <div className="text-[14px] font-semibold text-slate-900">Chọn fanpage cần import</div>
+                <div className="text-[14px] font-semibold text-slate-900">Import nhiều fanpage từ Meta app</div>
                 <div className="mt-2 text-[13px] leading-6 text-[var(--text-soft)]">
-                  Hệ thống sẽ lấy luôn Page Access Token của từng fanpage được chọn từ User Access Token hiện tại.
+                  Chỉ dùng khi bạn quản lý nhiều fanpage từ cùng một app Meta và muốn lấy token hàng loạt thay vì nhập từng trang.
                 </div>
               </div>
-              <StatusPill tone="amber">{selectedDiscoveredPageIds.length}/{discoveredFbPages.length} đã chọn</StatusPill>
-            </div>
-            <div className="mt-4 space-y-3">
-              {discoveredFbPages.map((pageItem) => {
-                const isSelected = selectedDiscoveredPageIds.includes(pageItem.page_id);
-                return (
-                  <label
-                    key={pageItem.page_id}
-                    className={cx(
-                      'flex cursor-pointer items-start gap-3 rounded-[20px] border px-4 py-4 transition',
-                      isSelected
-                        ? 'border-sky-200 bg-sky-50'
-                        : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/70',
-                    )}
+              <div className="flex flex-wrap items-center gap-2">
+                {fbPages.length > 0 ? <StatusPill tone="slate">{fbPages.length} trang đã có</StatusPill> : null}
+                <StatusPill tone="amber">Nâng cao</StatusPill>
+              </div>
+            </summary>
+
+            <div className="mt-4 space-y-4 border-t border-slate-200 pt-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-3 text-[13px] leading-6 text-[var(--text-soft)]">
+                  <div className="font-semibold text-slate-900">Dùng User Access Token</div>
+                  Token nên có `pages_show_list` và các quyền quản trị trang liên quan.
+                </div>
+                <div className="rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-3 text-[13px] leading-6 text-[var(--text-soft)]">
+                  <div className="font-semibold text-slate-900">Phù hợp khi có nhiều trang</div>
+                  Hệ thống sẽ tải danh sách fanpage, chọn trang cần dùng rồi import một lần.
+                </div>
+              </div>
+
+              <form onSubmit={handleDiscoverFacebookPages} className="rounded-[20px] border border-slate-200 bg-white p-4">
+                <label className="block space-y-2">
+                  <span className="text-[13px] font-medium text-slate-700">User Access Token</span>
+                  <input
+                    required
+                    type="password"
+                    className={FIELD_CLASS}
+                    placeholder="Dán User Access Token có quyền pages_show_list"
+                    value={fbImportToken}
+                    onChange={(event) => setFbImportToken(event.target.value)}
+                    autoComplete="off"
+                    spellCheck="false"
+                  />
+                </label>
+                <div className="mt-4 mobile-action-stack">
+                  <button type="submit" disabled={actionState['discover-pages']} className={BUTTON_PRIMARY}>
+                    <Globe2 className="h-4 w-4" />
+                    {actionState['discover-pages'] ? 'Đang tải danh sách...' : 'Tải danh sách fanpage'}
+                  </button>
+                  <button
+                    type="button"
+                    className={BUTTON_SECONDARY}
+                    onClick={handleRefreshFacebookPages}
+                    disabled={fbPages.length === 0 || actionState['refresh-pages']}
                   >
-                    <input
-                      type="checkbox"
-                      className="mt-1"
-                      checked={isSelected}
-                      onChange={() => handleToggleDiscoveredPage(pageItem.page_id)}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <div className="font-medium text-slate-900">{pageItem.page_name}</div>
-                        {pageItem.already_configured ? <StatusPill tone="amber">Đã có trong hệ thống</StatusPill> : null}
-                        {pageItem.has_page_access_token ? <StatusPill tone="emerald">Có Page Token</StatusPill> : <StatusPill tone="rose">Thiếu Page Token</StatusPill>}
-                      </div>
-                      <div className="mt-1 text-xs text-[var(--text-muted)]">{pageItem.page_id}</div>
-                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                        <InfoRow label="Danh mục" value={pageItem.category || 'Chưa rõ'} />
-                        <InfoRow label="Quyền" value={(pageItem.tasks || []).join(', ') || 'Chưa có'} />
+                    <RefreshCw className="h-4 w-4" />
+                    {actionState['refresh-pages'] ? 'Đang làm mới...' : 'Làm mới token fanpage đã có'}
+                  </button>
+                  {discoveredFbPages.length > 0 ? (
+                    <button type="button" className={BUTTON_GHOST} onClick={handleToggleAllDiscoveredPages}>
+                      {allDiscoveredSelected ? 'Bỏ chọn tất cả' : 'Chọn tất cả'}
+                    </button>
+                  ) : null}
+                </div>
+                {discoverySubject ? (
+                  <div className="mt-4 rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3 text-[13px] leading-6 text-[var(--text-soft)]">
+                    Đang xem fanpage của <span className="font-medium text-slate-900">{discoverySubject.token_subject_name || discoverySubject.token_subject_id}</span>
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3 text-[13px] leading-6 text-[var(--text-soft)]">
+                    Sau khi tải xong, danh sách fanpage sẽ hiện bên dưới để bạn chọn import hàng loạt.
+                  </div>
+                )}
+              </form>
+
+              {discoveredFbPages.length > 0 ? (
+                <div className="rounded-[20px] border border-slate-200 bg-white p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <div className="text-[14px] font-semibold text-slate-900">Chọn fanpage cần import</div>
+                      <div className="mt-2 text-[13px] leading-6 text-[var(--text-soft)]">
+                        Hệ thống sẽ lấy luôn Page Access Token của từng fanpage được chọn từ User Access Token hiện tại.
                       </div>
                     </div>
-                  </label>
-                );
-              })}
+                    <StatusPill tone="amber">{selectedDiscoveredPageIds.length}/{discoveredFbPages.length} đã chọn</StatusPill>
+                  </div>
+                  <div className="mt-4 space-y-3">
+                    {discoveredFbPages.map((pageItem) => {
+                      const isSelected = selectedDiscoveredPageIds.includes(pageItem.page_id);
+                      return (
+                        <label
+                          key={pageItem.page_id}
+                          className={cx(
+                            'flex cursor-pointer items-start gap-3 rounded-[20px] border px-4 py-4 transition',
+                            isSelected
+                              ? 'border-sky-200 bg-sky-50'
+                              : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/70',
+                          )}
+                        >
+                          <input
+                            type="checkbox"
+                            className="mt-1"
+                            checked={isSelected}
+                            onChange={() => handleToggleDiscoveredPage(pageItem.page_id)}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="font-medium text-slate-900">{pageItem.page_name}</div>
+                              {pageItem.already_configured ? <StatusPill tone="amber">Đã có trong hệ thống</StatusPill> : null}
+                              {pageItem.has_page_access_token ? <StatusPill tone="emerald">Có Page Token</StatusPill> : <StatusPill tone="rose">Thiếu Page Token</StatusPill>}
+                            </div>
+                            <div className="mt-1 text-xs text-[var(--text-muted)]">{pageItem.page_id}</div>
+                            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                              <InfoRow label="Danh mục" value={pageItem.category || 'Chưa rõ'} />
+                              <InfoRow label="Quyền" value={(pageItem.tasks || []).join(', ') || 'Chưa có'} />
+                            </div>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-4 mobile-action-stack">
+                    <button
+                      type="button"
+                      className={BUTTON_PRIMARY}
+                      onClick={handleImportFacebookPages}
+                      disabled={selectedDiscoveredPageIds.length === 0 || actionState['import-pages']}
+                    >
+                      <PlusCircle className="h-4 w-4" />
+                      {actionState['import-pages'] ? 'Đang import...' : 'Import fanpage đã chọn'}
+                    </button>
+                    <button
+                      type="button"
+                      className={BUTTON_GHOST}
+                      onClick={() => {
+                        setDiscoveredFbPages([]);
+                        setSelectedDiscoveredPageIds([]);
+                        setDiscoverySubject(null);
+                      }}
+                    >
+                      Xóa danh sách
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
-            <div className="mt-4 mobile-action-stack">
-              <button
-                type="button"
-                className={BUTTON_PRIMARY}
-                onClick={handleImportFacebookPages}
-                disabled={selectedDiscoveredPageIds.length === 0 || actionState['import-pages']}
-              >
-                <PlusCircle className="h-4 w-4" />
-                {actionState['import-pages'] ? 'Đang import...' : 'Import fanpage đã chọn'}
-              </button>
-              <button
-                type="button"
-                className={BUTTON_GHOST}
-                onClick={() => {
-                  setDiscoveredFbPages([]);
-                  setSelectedDiscoveredPageIds([]);
-                  setDiscoverySubject(null);
-                }}
-              >
-                Xóa danh sách
-              </button>
-            </div>
-          </div>
-        ) : null}
+          </details>
+        </div>
       </Panel>
 
       <Panel
@@ -620,7 +670,7 @@ export default function SettingsSection({
           className="order-2 2xl:col-span-12"
           eyebrow="Bước 1"
           title="Những mục cần cấu hình để chạy hệ thống"
-          subtitle="Giữ lại 4 cấu hình chính cho webhook và AI. Tunnel và Telegram là phần mở rộng, chỉ cấu hình khi thực sự dùng."
+          subtitle="Nếu bạn đi ra Internet qua Cloudflare Tunnel, hãy xác thực TUNNEL_TOKEN trước. Sau đó điền BASE_URL bằng hostname public đã cấu hình trên Cloudflare, rồi mới hoàn tất webhook và AI."
         >
           <form onSubmit={handleRuntimeConfigSave} className="space-y-5">
             <div className="grid gap-4 2xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
@@ -630,21 +680,70 @@ export default function SettingsSection({
                     <div>
                       <div className="text-[14px] font-semibold text-slate-900">Bước 1. URL công khai và webhook Meta</div>
                       <div className="mt-1 text-[13px] leading-6 text-[var(--text-soft)]">
-                        Cụm này quyết định Meta có gọi được webhook và xác minh được hệ thống của bạn hay không.
+                        Nếu dùng Cloudflare Tunnel, xác thực token trước. BASE_URL vẫn phải là hostname public bạn đã cấu hình trên Cloudflare.
                       </div>
                     </div>
                     <StatusPill tone={publicWebhookReady && signatureReady ? 'emerald' : 'amber'}>
                       {publicWebhookReady && signatureReady ? 'Đã đủ' : 'Còn thiếu'}
                     </StatusPill>
                   </div>
+                  <div className="mt-4">
+                    <RuntimeFieldCard
+                      label="TUNNEL_TOKEN"
+                      description="Dùng khi backend được public qua Cloudflare Tunnel. Bạn có thể dán trực tiếp token hoặc cả lệnh `cloudflared`."
+                      helper={buildSettingHelper('TUNNEL_TOKEN', 'Token tunnel không tự chứa public hostname. Sau khi xác thực xong, nhập hostname public vào BASE_URL.')}
+                      value={runtimeForm.TUNNEL_TOKEN}
+                      onChange={(event) => handleRuntimeFieldChange('TUNNEL_TOKEN', event.target.value)}
+                      placeholder="Cloudflare Tunnel token"
+                      fieldClass={FIELD_CLASS}
+                      type="password"
+                      action={(
+                        <button
+                          type="button"
+                          className={BUTTON_SECONDARY}
+                          onClick={handleVerifyTunnelToken}
+                          disabled={actionState['verify-tunnel-token']}
+                        >
+                          <ShieldCheck className="h-4 w-4" />
+                          {actionState['verify-tunnel-token'] ? 'Đang xác thực...' : 'Xác thực token'}
+                        </button>
+                      )}
+                    />
+                    {tunnelVerification ? (
+                      <div className={cx(
+                        'mt-3 rounded-[22px] border px-4 py-4 text-[13px] leading-6',
+                        tunnelVerification.ok
+                          ? 'border-sky-200 bg-sky-50 text-sky-800'
+                          : 'border-rose-200 bg-rose-50 text-rose-800',
+                      )}>
+                        <div className="font-semibold text-slate-900">
+                          {tunnelVerification.ok ? 'TUNNEL_TOKEN đã qua bước kiểm tra' : 'TUNNEL_TOKEN chưa hợp lệ'}
+                        </div>
+                        <div className="mt-1">{tunnelVerification.message}</div>
+                        {tunnelVerification.ok ? (
+                          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                            <InfoRow label="Tunnel ID" value={tunnelVerification.tunnel_id || 'Chưa đọc được'} />
+                            <InfoRow label="Account tag" value={tunnelVerification.account_tag || 'Chưa đọc được'} />
+                          </div>
+                        ) : null}
+                        {tunnelVerification.next_step ? (
+                          <div className="mt-2 text-xs text-[var(--text-soft)]">{tunnelVerification.next_step}</div>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div className="mt-3 rounded-[22px] border border-slate-200 bg-white px-4 py-4 text-[13px] leading-6 text-[var(--text-soft)]">
+                        Nếu bạn dùng tunnel, hãy xác thực token trước rồi điền hostname public vào <span className="font-medium text-slate-900">BASE_URL</span>. Token chỉ giúp tunnel kết nối, không tự sinh domain public.
+                      </div>
+                    )}
+                  </div>
                   <div className="mt-4 grid gap-4 lg:grid-cols-2">
                     <RuntimeFieldCard
                       label="BASE_URL"
-                      description="URL công khai của hệ thống. Nên là domain HTTPS thật để Facebook truy cập được từ bên ngoài."
-                      helper={buildSettingHelper('BASE_URL', 'Ví dụ: https://your-domain.example.com')}
+                      description="URL công khai thật của hệ thống. Nếu dùng tunnel, đây là hostname public bạn đã publish trên Cloudflare."
+                      helper={buildSettingHelper('BASE_URL', 'Ví dụ: https://social.example.com')}
                       value={runtimeForm.BASE_URL}
                       onChange={(event) => handleRuntimeFieldChange('BASE_URL', event.target.value)}
-                      placeholder="https://your-domain.example.com"
+                      placeholder="https://social.example.com"
                       fieldClass={FIELD_CLASS}
                       type="url"
                     />
@@ -715,22 +814,12 @@ export default function SettingsSection({
                     <div>
                       <div className="text-[14px] font-semibold text-slate-900">Mở rộng khi cần</div>
                       <div className="mt-1 text-[13px] leading-6 text-[var(--text-soft)]">
-                        Không bắt buộc để chạy lõi hệ thống. Chỉ cấu hình khi bạn dùng tunnel hoặc muốn nhận thông báo Telegram.
+                        Không bắt buộc để chạy lõi hệ thống. Phần này chỉ còn các tích hợp thông báo phụ trợ.
                       </div>
                     </div>
-                    <StatusPill tone={optionalConfiguredCount > 0 ? 'sky' : 'slate'}>{optionalConfiguredCount}/3 đã dùng</StatusPill>
+                    <StatusPill tone={optionalConfiguredCount > 0 ? 'sky' : 'slate'}>{optionalConfiguredCount}/2 đã dùng</StatusPill>
                   </div>
                   <div className="mt-4 space-y-4">
-                    <RuntimeFieldCard
-                      label="TUNNEL_TOKEN"
-                      description="Dùng khi bạn muốn công khai hệ thống qua Cloudflare Tunnel."
-                      helper={buildSettingHelper('TUNNEL_TOKEN')}
-                      value={runtimeForm.TUNNEL_TOKEN}
-                      onChange={(event) => handleRuntimeFieldChange('TUNNEL_TOKEN', event.target.value)}
-                      placeholder="Cloudflare Tunnel token"
-                      fieldClass={FIELD_CLASS}
-                      type="password"
-                    />
                     <RuntimeFieldCard
                       label="TELEGRAM_BOT_TOKEN"
                       description="Bot token để hệ thống gửi cảnh báo hoặc thông báo vận hành sang Telegram."
@@ -752,24 +841,32 @@ export default function SettingsSection({
                     />
                   </div>
                 </div>
-
-                <div className="rounded-[28px] border border-slate-200 bg-white p-5">
+              </div>
+            </div>
+            <div className="rounded-[28px] border border-slate-200 bg-white p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
                   <div className="text-[14px] font-semibold text-slate-900">Tóm tắt cấu hình hiện tại</div>
                   <div className="mt-1 text-[13px] leading-6 text-[var(--text-soft)]">
-                    Khối này giúp người mới kiểm tra nhanh xem hệ thống đã đủ điều kiện để đi vào vận hành hay chưa.
-                  </div>
-                  <div className="mt-4 space-y-3">
-                    <InfoRow label="Webhook công khai" value={webhookUrl || 'Chưa có'} emphasis={publicWebhookReady} />
-                    <InfoRow label="Mã xác minh" value={verifyToken || 'Chưa có'} emphasis={Boolean(verifyToken)} />
-                    <InfoRow label="Ký webhook" value={signatureReady ? 'Đã cấu hình' : 'Chưa đủ'} emphasis={signatureReady} />
-                    <InfoRow label="Gemini AI" value={aiReady ? 'Đã cấu hình' : 'Chưa cấu hình'} emphasis={aiReady} />
-                    <InfoRow label="File runtime" value={runtimeDerived.runtime_env_file || 'backend/runtime.env'} />
-                    <InfoRow label="Fanpage sẵn sàng" value={`${readyPageCount}/${fbPages.length || 0}`} emphasis={readyPageCount > 0} />
-                  </div>
-                  <div className="mt-4 rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4 text-[13px] leading-6 text-[var(--text-soft)]">
-                    Để trống một ô rồi bấm lưu nếu muốn quay về giá trị đang lấy từ môi trường.
+                    Kiểm tra nhanh toàn bộ điều kiện vận hành theo hàng ngang, không phải quét từng dòng dọc như trước.
                   </div>
                 </div>
+                <StatusPill tone={runtimeStepReady && readyPageCount > 0 ? 'emerald' : 'amber'}>
+                  {runtimeStepReady && readyPageCount > 0 ? 'Sẵn sàng vận hành' : 'Cần bổ sung'}
+                </StatusPill>
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+                {runtimeSummaryItems.map((item) => (
+                  <div key={item.label} className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4">
+                    <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--text-muted)]">{item.label}</div>
+                    <div className={cx('mt-3 text-[14px] font-semibold leading-6', item.emphasis ? 'text-slate-900' : 'text-[var(--text-soft)]')}>
+                      {item.value}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4 text-[13px] leading-6 text-[var(--text-soft)]">
+                Để trống một ô rồi bấm lưu nếu muốn quay về giá trị đang lấy từ môi trường.
               </div>
             </div>
             <div className="flex flex-wrap justify-end gap-2">

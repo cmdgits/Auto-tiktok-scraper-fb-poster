@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -32,6 +32,7 @@ from app.services.health_checks import (
     check_gemini_dependency,
     check_runtime_env_health,
 )
+from app.services.cloudflare_tunnel import inspect_tunnel_token
 from app.services.runtime_settings import (
     RUNTIME_ENV_FILE,
     build_runtime_settings_payload,
@@ -54,6 +55,10 @@ class RuntimeSettingsUpdateRequest(BaseModel):
     TUNNEL_TOKEN: str | None = Field(default=None)
     TELEGRAM_BOT_TOKEN: str | None = Field(default=None)
     TELEGRAM_CHAT_ID: str | None = Field(default=None)
+
+
+class TunnelTokenVerifyRequest(BaseModel):
+    tunnel_token: str = Field(min_length=1)
 
 
 def serialize_worker(worker: WorkerHeartbeat) -> dict:
@@ -254,6 +259,17 @@ def save_runtime_config(
     response_payload["restart_required_keys"] = restart_required_keys
     response_payload["message"] = message
     return response_payload
+
+
+@router.post("/runtime-config/verify-tunnel-token")
+def verify_tunnel_token(
+    payload: TunnelTokenVerifyRequest,
+    _: User = Depends(require_admin),
+):
+    inspection = inspect_tunnel_token(payload.tunnel_token)
+    if not inspection["ok"]:
+        raise HTTPException(status_code=400, detail=inspection["message"])
+    return inspection
 
 
 @router.get("/tasks")
