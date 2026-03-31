@@ -42,6 +42,7 @@ from app.services.runtime_settings import (
 )
 from app.services.security import is_default_secret
 from app.services.task_queue import count_stale_processing_tasks, serialize_task, summarize_tasks
+from app.services.tunnel_runtime import restart_tunnel_service
 from app.services.ytdlp_crawler import get_downloader_health
 
 router = APIRouter(prefix="/system", tags=["Hệ thống"])
@@ -264,12 +265,47 @@ def save_runtime_config(
 @router.post("/runtime-config/verify-tunnel-token")
 def verify_tunnel_token(
     payload: TunnelTokenVerifyRequest,
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
 ):
     inspection = inspect_tunnel_token(payload.tunnel_token)
     if not inspection["ok"]:
         raise HTTPException(status_code=400, detail=inspection["message"])
-    return inspection
+
+    changed_keys = update_runtime_settings(
+        db,
+        {"TUNNEL_TOKEN": inspection["normalized_token"]},
+        actor_user_id=str(current_user.id),
+    )
+    restart_result = restart_tunnel_service()
+
+    response_payload = build_runtime_settings_payload(db)
+    response_payload["changed_keys"] = changed_keys
+    response_payload["message"] = restart_result["message"]
+    response_payload["tunnel_verification"] = {
+        **inspection,
+        "restart_ok": restart_result["ok"],
+        "restart_message": restart_result["message"],
+        "manual_command": restart_result.get("manual_command"),
+    }
+    response_payload["tunnel_restart"] = restart_result
+
+    record_event(
+        "system",
+        "info" if restart_result["ok"] else "warning",
+        "Đã xử lý yêu cầu xác thực TUNNEL_TOKEN từ dashboard.",
+        db=db,
+        actor_user_id=str(current_user.id),
+        details={
+            "changed_keys": changed_keys,
+            "tunnel_id": inspection.get("tunnel_id"),
+            "account_tag": inspection.get("account_tag"),
+            "restart_ok": restart_result["ok"],
+            "manual_command": restart_result.get("manual_command"),
+        },
+    )
+
+    return response_payload
 
 
 @router.get("/tasks")

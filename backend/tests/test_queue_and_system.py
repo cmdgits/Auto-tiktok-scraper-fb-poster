@@ -168,7 +168,19 @@ def test_admin_can_update_runtime_config_and_webhook_uses_new_values(client, aut
     assert "TUNNEL_TOKEN=runtime-tunnel-token" in runtime_content
 
 
-def test_admin_can_verify_tunnel_token_format_and_extract_raw_token(client, auth_headers):
+def test_admin_can_verify_tunnel_token_and_restart_tunnel_service(client, auth_headers, monkeypatch):
+    from app.api import system as system_api
+
+    monkeypatch.setattr(
+        system_api,
+        "restart_tunnel_service",
+        lambda: {
+            "ok": True,
+            "message": "Đã gửi lệnh khởi động lại tunnel.",
+            "command": "docker compose up -d --force-recreate tunnel",
+        },
+    )
+
     response = client.post(
         "/system/runtime-config/verify-tunnel-token",
         headers=auth_headers,
@@ -184,8 +196,10 @@ def test_admin_can_verify_tunnel_token_format_and_extract_raw_token(client, auth
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["ok"] is True
-    assert payload["normalized_token"].startswith("eyJ")
-    assert payload["tunnel_id"] == "6ff42ae2-765d-4adf-8112-31c55c1551ef"
-    assert payload["account_tag"] == "acct-123"
-    assert payload["can_autofill_base_url"] is False
+    assert payload["tunnel_verification"]["ok"] is True
+    assert payload["settings"]["TUNNEL_TOKEN"]["value"].startswith("eyJ")
+    assert payload["tunnel_verification"]["tunnel_id"] == "6ff42ae2-765d-4adf-8112-31c55c1551ef"
+    assert payload["tunnel_verification"]["account_tag"] == "acct-123"
+    assert payload["tunnel_verification"]["can_autofill_base_url"] is False
+    assert payload["tunnel_restart"]["ok"] is True
+    assert "TUNNEL_TOKEN" in payload["changed_keys"]

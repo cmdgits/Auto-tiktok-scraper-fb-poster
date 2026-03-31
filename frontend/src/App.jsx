@@ -1352,13 +1352,10 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tunnel_token: tunnelToken }),
       });
-      setTunnelVerification(payload);
-      setRuntimeForm((current) => ({
-        ...current,
-        TUNNEL_TOKEN: payload.normalized_token || current.TUNNEL_TOKEN,
-        BASE_URL: current.BASE_URL || payload.base_url || current.BASE_URL,
-      }));
-      showNotice('success', payload.message);
+      setRuntimeConfig(payload);
+      setRuntimeForm(extractRuntimeForm(payload));
+      setTunnelVerification(payload.tunnel_verification || null);
+      showNotice(payload.tunnel_restart?.ok ? 'success' : 'error', payload.message);
     } catch (error) {
       setTunnelVerification({ ok: false, message: error.message });
       showNotice('error', error.message);

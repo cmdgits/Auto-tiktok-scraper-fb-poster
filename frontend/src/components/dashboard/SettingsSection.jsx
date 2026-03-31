@@ -705,25 +705,41 @@ export default function SettingsSection({
                           disabled={actionState['verify-tunnel-token']}
                         >
                           <ShieldCheck className="h-4 w-4" />
-                          {actionState['verify-tunnel-token'] ? 'Đang xác thực...' : 'Xác thực token'}
+                          {actionState['verify-tunnel-token'] ? 'Đang kết nối...' : 'Lưu token & kết nối tunnel'}
                         </button>
                       )}
                     />
                     {tunnelVerification ? (
                       <div className={cx(
                         'mt-3 rounded-[22px] border px-4 py-4 text-[13px] leading-6',
-                        tunnelVerification.ok
-                          ? 'border-sky-200 bg-sky-50 text-sky-800'
+                        tunnelVerification.ok && tunnelVerification.restart_ok
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                          : tunnelVerification.ok
+                            ? 'border-amber-200 bg-amber-50 text-amber-800'
                           : 'border-rose-200 bg-rose-50 text-rose-800',
                       )}>
                         <div className="font-semibold text-slate-900">
-                          {tunnelVerification.ok ? 'TUNNEL_TOKEN đã qua bước kiểm tra' : 'TUNNEL_TOKEN chưa hợp lệ'}
+                          {tunnelVerification.ok && tunnelVerification.restart_ok
+                            ? 'TUNNEL_TOKEN đã được lưu và tunnel đang được kết nối'
+                            : tunnelVerification.ok
+                              ? 'TUNNEL_TOKEN hợp lệ nhưng tunnel chưa tự kết nối được'
+                              : 'TUNNEL_TOKEN chưa hợp lệ'}
                         </div>
                         <div className="mt-1">{tunnelVerification.message}</div>
                         {tunnelVerification.ok ? (
                           <div className="mt-2 grid gap-2 sm:grid-cols-2">
                             <InfoRow label="Tunnel ID" value={tunnelVerification.tunnel_id || 'Chưa đọc được'} />
                             <InfoRow label="Account tag" value={tunnelVerification.account_tag || 'Chưa đọc được'} />
+                          </div>
+                        ) : null}
+                        {tunnelVerification.restart_message ? (
+                          <div className="mt-2 rounded-[18px] border border-white/60 bg-white/70 px-3 py-3 text-[13px] leading-6 text-slate-700">
+                            {tunnelVerification.restart_message}
+                          </div>
+                        ) : null}
+                        {tunnelVerification.manual_command ? (
+                          <div className="mt-2 rounded-[18px] border border-white/60 bg-white/70 px-3 py-3 text-xs leading-6 text-slate-700">
+                            Lệnh chạy tay: <span className="font-mono text-[12px] text-slate-900">{tunnelVerification.manual_command}</span>
                           </div>
                         ) : null}
                         {tunnelVerification.next_step ? (
