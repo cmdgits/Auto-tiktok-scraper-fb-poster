@@ -214,7 +214,7 @@ export default function SettingsSection({
       detail: pageSetupReady
         ? `${fbPages.length} fanpage đã được thêm vào hệ thống.`
         : 'Import fanpage từ app Meta hoặc nhập tay tối thiểu một trang.',
-      tone: pageSetupReady ? 'sky' : 'amber',
+      tone: pageSetupReady ? 'emerald' : 'amber',
     },
     {
       step: '03',
