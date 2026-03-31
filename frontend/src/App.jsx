@@ -1,49 +1,55 @@
-import { useEffect, useRef, useState } from 'react';
+﻿import { useEffect, useRef, useState } from 'react';
 import {
   Activity,
-  AlertTriangle,
   Bot,
-  ChevronDown,
-  ChevronRight,
-  ChevronUp,
-  CircleCheck,
-  CircleX,
   Clock,
-  CloudDownload,
-  Copy,
-  ExternalLink,
-  Filter,
   Globe2,
-  KeyRound,
   LogOut,
   Menu,
   MessagesSquare,
-  Pause,
   Play,
-  PlusCircle,
   Radio,
   RefreshCw,
   Server,
   Share2,
   ShieldCheck,
   Terminal,
-  Trash2,
-  UserPlus,
   X,
   Zap,
 } from 'lucide-react';
 
+import CampaignSection from './components/dashboard/CampaignSection';
+import EngagementSection from './components/dashboard/EngagementSection';
+import LoginScreen from './components/dashboard/LoginScreen';
+import MobileQuickPanel from './components/dashboard/MobileQuickPanel';
+import MessagesSection from './components/dashboard/MessagesSection';
+import OperationsSection from './components/dashboard/OperationsSection';
+import OverviewSection from './components/dashboard/OverviewSection';
+import QueueSection from './components/dashboard/QueueSection';
+import SecuritySection from './components/dashboard/SecuritySection';
+import SettingsSection from './components/dashboard/SettingsSection';
+import {
+  cx,
+  DetailToggle,
+  InfoRow,
+  MetricCard,
+  Panel,
+  StatusPill,
+} from './components/dashboard/ui';
+
 const API_URL = '/api';
 const AUTO_REFRESH_MS = 5000;
+const ENGAGEMENT_PAGE_SIZE = 10;
+const WORKER_PAGE_SIZE = 2;
 const TASK_PAGE_SIZE = 3;
 const TASK_FETCH_LIMIT = 24;
 const SYSTEM_EVENT_PAGE_SIZE = 3;
 const SYSTEM_EVENT_FETCH_LIMIT = 24;
-const FIELD_CLASS = 'field-input w-full rounded-2xl px-4 py-3 text-sm text-white';
+const FIELD_CLASS = 'field-input w-full rounded-2xl px-4 py-3 text-[14px] leading-5 text-slate-900';
 const BUTTON_DISABLED = 'disabled:cursor-not-allowed disabled:opacity-50';
-const BUTTON_PRIMARY = `btn-primary inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold ${BUTTON_DISABLED}`;
-const BUTTON_SECONDARY = `btn-secondary inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-medium ${BUTTON_DISABLED}`;
-const BUTTON_GHOST = `btn-ghost inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-medium ${BUTTON_DISABLED}`;
+const BUTTON_PRIMARY = `btn-primary inline-flex min-h-10 items-center justify-center gap-2 rounded-full px-4 py-2.5 text-[13px] font-semibold ${BUTTON_DISABLED}`;
+const BUTTON_SECONDARY = `btn-secondary inline-flex min-h-10 items-center justify-center gap-2 rounded-full px-4 py-2.5 text-[13px] font-medium ${BUTTON_DISABLED}`;
+const BUTTON_GHOST = `btn-ghost inline-flex min-h-10 items-center justify-center gap-2 rounded-full px-4 py-2.5 text-[13px] font-medium ${BUTTON_DISABLED}`;
 
 const DEFAULT_STATS = {
   total: 0,
@@ -128,6 +134,7 @@ const NAV_ITEMS = [
   { id: 'queue', label: 'Lịch đăng', description: 'Video, lịch và caption.', icon: Clock },
   { id: 'engagement', label: 'Tương tác', description: 'Bình luận và phản hồi AI.', icon: Bot },
   { id: 'messages', label: 'Tin nhắn AI', description: 'Prompt và inbox tự động.', icon: MessagesSquare },
+  { id: 'settings', label: 'Cài đặt', description: 'Fanpage, Meta app và runtime.', icon: Terminal },
   { id: 'operations', label: 'Vận hành', description: 'Worker, queue và log.', icon: Server },
   { id: 'security', label: 'Bảo mật', description: 'Phiên, mật khẩu, người dùng.', icon: ShieldCheck },
 ];
@@ -152,14 +159,6 @@ const STATUS_LABELS = {
   legacy_webhook: 'Webhook cũ',
   invalid_encryption: 'Lỗi giải mã',
   missing: 'Chưa có',
-};
-
-const TONE_CLASSES = {
-  slate: 'border-white/10 bg-white/5 text-slate-200',
-  sky: 'border-cyan-400/20 bg-cyan-400/10 text-cyan-100',
-  emerald: 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100',
-  amber: 'border-amber-400/20 bg-amber-400/10 text-amber-100',
-  rose: 'border-rose-400/20 bg-rose-400/10 text-rose-100',
 };
 
 const PAGE_TOKEN_META = {
@@ -192,16 +191,6 @@ const SOURCE_KIND_LABELS = {
   youtube_short: 'YouTube Short',
   youtube_shorts_feed: 'Nguồn Shorts YouTube',
 };
-
-const TREND_STATUS_META = {
-  ready: { label: 'Sẵn sàng', color: '#67e8f9', textClass: 'text-cyan-100' },
-  posted: { label: 'Đã đăng', color: '#34d399', textClass: 'text-emerald-100' },
-  failed: { label: 'Thất bại', color: '#fb7185', textClass: 'text-rose-100' },
-};
-
-function cx(...values) {
-  return values.filter(Boolean).join(' ');
-}
 
 function parseMessage(payload, fallback) {
   return payload?.detail || payload?.message || fallback;
@@ -237,35 +226,29 @@ function formatRelTime(isoString) {
   return `${Math.floor(diffHours / 24)} ngày nữa`;
 }
 
-function formatTrendLabel(dateString) {
-  if (!dateString) return '--';
-  const [, month, day] = dateString.split('-');
-  return `${day}/${month}`;
-}
-
 function getStatusClasses(status) {
   const map = {
-    active: 'border-emerald-400/25 bg-emerald-400/10 text-emerald-100',
-    paused: 'border-amber-400/25 bg-amber-400/10 text-amber-100',
-    pending: 'border-cyan-400/25 bg-cyan-400/10 text-cyan-100',
-    downloading: 'border-cyan-400/25 bg-cyan-400/10 text-cyan-100',
-    queued: 'border-cyan-400/25 bg-cyan-400/10 text-cyan-100',
-    processing: 'border-amber-400/25 bg-amber-400/10 text-amber-100',
-    completed: 'border-emerald-400/25 bg-emerald-400/10 text-emerald-100',
-    ready: 'border-amber-400/25 bg-amber-400/10 text-amber-100',
-    posted: 'border-emerald-400/25 bg-emerald-400/10 text-emerald-100',
-    failed: 'border-rose-400/25 bg-rose-400/10 text-rose-100',
-    replied: 'border-emerald-400/25 bg-emerald-400/10 text-emerald-100',
-    ignored: 'border-white/10 bg-white/5 text-slate-200',
-    page_access_token: 'border-emerald-400/25 bg-emerald-400/10 text-emerald-100',
-    user_access_token: 'border-rose-400/25 bg-rose-400/10 text-rose-100',
-    invalid_token: 'border-rose-400/25 bg-rose-400/10 text-rose-100',
-    network_error: 'border-amber-400/25 bg-amber-400/10 text-amber-100',
-    legacy_webhook: 'border-amber-400/25 bg-amber-400/10 text-amber-100',
-    invalid_encryption: 'border-rose-400/25 bg-rose-400/10 text-rose-100',
-    missing: 'border-white/10 bg-white/5 text-slate-200',
+    active: 'border-emerald-400/25 bg-emerald-50 text-emerald-700',
+    paused: 'border-amber-400/25 bg-amber-50 text-amber-700',
+    pending: 'border-cyan-400/25 bg-sky-50 text-sky-700',
+    downloading: 'border-cyan-400/25 bg-sky-50 text-sky-700',
+    queued: 'border-cyan-400/25 bg-sky-50 text-sky-700',
+    processing: 'border-amber-400/25 bg-amber-50 text-amber-700',
+    completed: 'border-emerald-400/25 bg-emerald-50 text-emerald-700',
+    ready: 'border-amber-400/25 bg-amber-50 text-amber-700',
+    posted: 'border-emerald-400/25 bg-emerald-50 text-emerald-700',
+    failed: 'border-rose-400/25 bg-rose-50 text-rose-700',
+    replied: 'border-emerald-400/25 bg-emerald-50 text-emerald-700',
+    ignored: 'border-slate-200 bg-white text-slate-200',
+    page_access_token: 'border-emerald-400/25 bg-emerald-50 text-emerald-700',
+    user_access_token: 'border-rose-400/25 bg-rose-50 text-rose-700',
+    invalid_token: 'border-rose-400/25 bg-rose-50 text-rose-700',
+    network_error: 'border-amber-400/25 bg-amber-50 text-amber-700',
+    legacy_webhook: 'border-amber-400/25 bg-amber-50 text-amber-700',
+    invalid_encryption: 'border-rose-400/25 bg-rose-50 text-rose-700',
+    missing: 'border-slate-200 bg-white text-slate-200',
   };
-  return map[status] || 'border-white/10 bg-white/5 text-slate-200';
+  return map[status] || 'border-slate-200 bg-white text-slate-200';
 }
 
 function getSyncStateMeta(status) {
@@ -499,270 +482,6 @@ function buildPageCheckSnapshot(payload) {
   };
 }
 
-function StatusIcon({ status, className = '' }) {
-  if (['posted', 'completed', 'active', 'replied', 'page_access_token'].includes(status)) {
-    return <CircleCheck className={cx('h-3.5 w-3.5', className)} />;
-  }
-  if (['failed', 'invalid_encryption'].includes(status)) {
-    return <CircleX className={cx('h-3.5 w-3.5', className)} />;
-  }
-  if (['user_access_token', 'invalid_token'].includes(status)) {
-    return <CircleX className={cx('h-3.5 w-3.5', className)} />;
-  }
-  if (['pending', 'queued', 'processing', 'downloading'].includes(status)) {
-    return <RefreshCw className={cx('h-3.5 w-3.5 animate-spin', className)} />;
-  }
-  if (['paused', 'ready', 'legacy_webhook', 'ignored', 'network_error'].includes(status)) {
-    return <Radio className={cx('h-3.5 w-3.5', className)} />;
-  }
-  return <ChevronRight className={cx('h-3.5 w-3.5', className)} />;
-}
-
-function StatusPill({ tone = 'slate', icon: Icon, children, className = '' }) {
-  return (
-    <span
-      className={cx(
-        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-medium',
-        TONE_CLASSES[tone] || TONE_CLASSES.slate,
-        className
-      )}
-    >
-      {Icon ? <Icon className="h-3.5 w-3.5" /> : null}
-      <span>{children}</span>
-    </span>
-  );
-}
-
-function MetricCard({ icon, label, value, detail, tone = 'slate' }) {
-  const IconComponent = icon;
-  return (
-    <div className="metric-card overflow-hidden rounded-[22px] p-3.5 sm:rounded-[24px] lg:p-4">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className="text-[11px] uppercase tracking-[0.24em] text-[var(--text-muted)]">{label}</div>
-          <div className="mt-2.5 font-display text-[1.45rem] font-semibold text-white sm:text-[1.8rem]">{value}</div>
-        </div>
-        <div className={cx('rounded-2xl border p-3', TONE_CLASSES[tone] || TONE_CLASSES.slate)}>
-          <IconComponent className="h-5 w-5" />
-        </div>
-      </div>
-      <p className="mt-3 text-xs leading-5 text-[var(--text-soft)]">{detail}</p>
-    </div>
-  );
-}
-
-function Panel({ eyebrow, title, subtitle, action, children, className = '' }) {
-  return (
-    <section className={cx('panel-surface rounded-[22px] p-3.5 sm:rounded-[24px] sm:p-4 lg:p-5', className)}>
-      {(eyebrow || title || subtitle || action) && (
-        <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-          <div className="min-w-0">
-            {eyebrow ? <div className="text-[10px] uppercase tracking-[0.34em] text-[var(--text-muted)]">{eyebrow}</div> : null}
-            {title ? <h2 className="mt-1.5 font-display text-[1.05rem] font-semibold text-white sm:text-[1.25rem]">{title}</h2> : null}
-            {subtitle ? <p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--text-soft)]">{subtitle}</p> : null}
-          </div>
-          {action ? <div className="shrink-0">{action}</div> : null}
-        </div>
-      )}
-      {children}
-    </section>
-  );
-}
-
-function InfoRow({ label, value, emphasis = false }) {
-  return (
-    <div className="flex flex-col gap-1.5 rounded-2xl border border-white/6 bg-black/10 px-3 py-2.5 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-      <span className="text-[13px] text-[var(--text-muted)]">{label}</span>
-      <span className={cx('text-left text-[13px] sm:text-right', emphasis ? 'font-semibold text-white' : 'text-[var(--text-soft)]')}>{value}</span>
-    </div>
-  );
-}
-
-function SourceBreakdownBar({ label, value, max = 1, tone = 'slate', detail }) {
-  const width = `${Math.max(8, Math.round((value / Math.max(1, max)) * 100))}%`;
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-[12px] text-[var(--text-muted)]">{label}</span>
-        <span className="text-sm font-medium text-white">{value}</span>
-      </div>
-      <div className="h-2.5 overflow-hidden rounded-full bg-white/8">
-        <div className={cx('h-full rounded-full', tone === 'rose' ? 'bg-rose-300/80' : tone === 'sky' ? 'bg-cyan-300/80' : 'bg-white/60')} style={{ width }} />
-      </div>
-      {detail ? <div className="text-[11px] text-[var(--text-muted)]">{detail}</div> : null}
-    </div>
-  );
-}
-
-function TrendLegend() {
-  return (
-    <div className="flex flex-wrap gap-2">
-      {Object.entries(TREND_STATUS_META).map(([key, meta]) => (
-        <span key={key} className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] text-[var(--text-soft)]">
-          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: meta.color }} />
-          {meta.label}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function TrendTimelineChart({ labels, series }) {
-  const width = 100;
-  const height = 56;
-  const entries = Object.entries(TREND_STATUS_META);
-  const values = entries.flatMap(([key]) => series?.[key] || []);
-  const maxValue = Math.max(1, ...values, 0);
-
-  const buildPoints = (points) => {
-    if (!points?.length) return '';
-    return points
-      .map((value, index) => {
-        const x = points.length === 1 ? width / 2 : (index / (points.length - 1)) * width;
-        const y = height - (value / maxValue) * (height - 6) - 3;
-        return `${x},${Number.isFinite(y) ? y : height - 3}`;
-      })
-      .join(' ');
-  };
-
-  return (
-    <div className="rounded-[22px] border border-white/8 bg-black/10 p-4">
-      <TrendLegend />
-      <div className="mt-4">
-        <svg viewBox={`0 0 ${width} ${height}`} className="h-32 w-full overflow-visible">
-          {[0.25, 0.5, 0.75].map((ratio) => {
-            const y = height - ratio * (height - 6) - 3;
-            return <line key={ratio} x1="0" y1={y} x2={width} y2={y} stroke="rgba(255,255,255,0.08)" strokeWidth="0.6" strokeDasharray="2 2" />;
-          })}
-          <line x1="0" y1={height - 3} x2={width} y2={height - 3} stroke="rgba(255,255,255,0.1)" strokeWidth="0.8" />
-          {entries.map(([key, meta]) => {
-            const points = series?.[key] || [];
-            const pointString = buildPoints(points);
-            return pointString ? (
-              <polyline
-                key={key}
-                fill="none"
-                stroke={meta.color}
-                strokeWidth="2.2"
-                strokeLinejoin="round"
-                strokeLinecap="round"
-                points={pointString}
-              />
-            ) : null;
-          })}
-          {entries.map(([key, meta]) => {
-            const points = series?.[key] || [];
-            return points.map((value, index) => {
-              const x = points.length === 1 ? width / 2 : (index / (points.length - 1)) * width;
-              const y = height - (value / maxValue) * (height - 6) - 3;
-              return <circle key={`${key}-${labels?.[index] || index}`} cx={x} cy={y} r="1.75" fill={meta.color} />;
-            });
-          })}
-        </svg>
-      </div>
-      <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-[var(--text-muted)]">
-        <span>{formatTrendLabel(labels?.[0])}</span>
-        <span>7 ngày gần nhất</span>
-        <span>{formatTrendLabel(labels?.[labels.length - 1])}</span>
-      </div>
-    </div>
-  );
-}
-
-function EmptyState({ title, description }) {
-  return (
-    <div className="rounded-[20px] border border-dashed border-white/10 bg-black/10 px-4 py-6 text-center sm:rounded-[22px] sm:px-5 sm:py-7">
-      <div className="font-display text-base font-semibold text-white sm:text-lg">{title}</div>
-      <p className="mx-auto mt-2 max-w-md text-[13px] leading-5 text-[var(--text-soft)]">{description}</p>
-    </div>
-  );
-}
-
-function DetailToggle({ expanded, onClick, className = '' }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cx(
-        'inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] text-[var(--text-soft)] transition hover:border-white/18 hover:bg-white/8 hover:text-white',
-        className
-      )}
-    >
-      {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-      {expanded ? 'Thu gọn' : 'Xem thêm'}
-    </button>
-  );
-}
-
-function LoginFeature({ icon, title, description }) {
-  const IconComponent = icon;
-  return (
-    <div className="rounded-[24px] border border-white/8 bg-black/10 p-4">
-      <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl border border-cyan-400/20 bg-cyan-400/10 text-cyan-100">
-        <IconComponent className="h-5 w-5" />
-      </div>
-      <div className="font-display text-lg font-semibold text-white">{title}</div>
-      <p className="mt-2 text-sm leading-6 text-[var(--text-soft)]">{description}</p>
-    </div>
-  );
-}
-
-function LoginScreen({ loginUser, setLoginUser, loginPass, setLoginPass, loginError, handleLogin }) {
-  return (
-    <div className="relative min-h-screen overflow-hidden bg-[var(--shell-bg)] text-white">
-      <div className="pointer-events-none absolute inset-0 opacity-80">
-        <div className="absolute inset-y-0 left-0 w-1/2 bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.16),transparent_58%)]" />
-        <div className="absolute inset-y-0 right-0 w-1/2 bg-[radial-gradient(circle_at_bottom_right,rgba(245,158,11,0.12),transparent_54%)]" />
-      </div>
-      <div className="relative mx-auto flex min-h-screen max-w-[1560px] items-center px-4 py-8 lg:px-8">
-        <div className="grid w-full gap-6 lg:grid-cols-[minmax(0,1.15fr)_440px] xl:gap-8">
-          <section className="panel-strong hidden rounded-[34px] p-8 lg:flex lg:flex-col lg:justify-between xl:p-10">
-            <div>
-              <StatusPill tone="sky" icon={Zap}>Trạm điều phối nội dung</StatusPill>
-              <h1 className="mt-6 max-w-3xl font-display text-[1.9rem] font-semibold leading-tight text-white xl:text-[2.5rem]">
-                Quản lý chiến dịch, lịch đăng và phản hồi Facebook trong một nơi.
-              </h1>
-              <p className="mt-5 max-w-2xl text-base leading-8 text-[var(--text-soft)]">
-                Theo dõi queue, worker, webhook và cấu hình hệ thống từ cùng một dashboard.
-              </p>
-            </div>
-            <div className="mt-10 grid gap-4 xl:grid-cols-3">
-              <LoginFeature icon={Share2} title="Điều phối theo khu vực" description="Tách khu vực rõ ràng." />
-              <LoginFeature icon={Terminal} title="Theo dõi sát worker" description="Theo dõi queue và worker." />
-              <LoginFeature icon={ShieldCheck} title="Quản trị có kiểm soát" description="Quản lý phiên và quyền." />
-            </div>
-          </section>
-          <section className="panel-surface mx-auto w-full max-w-[440px] rounded-[34px] p-6 sm:p-8">
-            <div className="flex h-14 w-14 items-center justify-center rounded-[22px] border border-cyan-400/20 bg-cyan-400/10 text-cyan-100">
-              <KeyRound className="h-7 w-7" />
-            </div>
-            <div className="mt-6">
-              <div className="text-[11px] uppercase tracking-[0.32em] text-[var(--text-muted)]">Đăng nhập vận hành</div>
-              <h2 className="mt-3 font-display text-[1.55rem] font-semibold text-white sm:text-[1.7rem]">Vào trạm điều phối</h2>
-              <p className="mt-3 text-sm leading-7 text-[var(--text-soft)]">Dùng tài khoản quản trị hoặc vận hành để bắt đầu.</p>
-            </div>
-            <form onSubmit={handleLogin} className="mt-8 space-y-4">
-              <label className="block space-y-2">
-                <span className="text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Tên đăng nhập</span>
-                <input type="text" required className={FIELD_CLASS} placeholder="Nhập tên đăng nhập" value={loginUser} onChange={(event) => setLoginUser(event.target.value)} />
-              </label>
-              <label className="block space-y-2">
-                <span className="text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Mật khẩu</span>
-                <input type="password" required className={FIELD_CLASS} placeholder="••••••••" value={loginPass} onChange={(event) => setLoginPass(event.target.value)} />
-              </label>
-              {loginError ? <div className="rounded-2xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">{loginError}</div> : null}
-              <button type="submit" className={cx(BUTTON_PRIMARY, 'w-full')}>
-                <KeyRound className="h-4 w-4" />
-                Đăng nhập vào hệ thống
-              </button>
-            </form>
-          </section>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function App() {
   const [campaigns, setCampaigns] = useState([]);
   const [videos, setVideos] = useState([]);
@@ -809,12 +528,14 @@ function App() {
   const [userForm, setUserForm] = useState({ username: '', display_name: '', password: '', role: 'operator' });
   const [passwordForm, setPasswordForm] = useState({ current_password: '', new_password: '' });
   const [activeSection, setActiveSection] = useState(localStorage.getItem('dashboard-active-section') || 'overview');
+  const [workerPage, setWorkerPage] = useState(1);
   const [taskPage, setTaskPage] = useState(1);
   const [eventPage, setEventPage] = useState(1);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [expandedItems, setExpandedItems] = useState({});
   const [showAllMetrics, setShowAllMetrics] = useState(false);
   const [overviewSourceFilter, setOverviewSourceFilter] = useState('all');
+  const [engagementPage, setEngagementPage] = useState(1);
   const [conversationStatusFilter, setConversationStatusFilter] = useState('all');
   const [manualReplyDraft, setManualReplyDraft] = useState('');
   const [conversationNoteDraft, setConversationNoteDraft] = useState('');
@@ -864,6 +585,28 @@ function App() {
     .slice(0, 3);
   const runtimeSettings = runtimeConfig?.settings || {};
   const runtimeDerived = runtimeConfig?.derived || {};
+  const runtimeOverrideCount = Object.values(runtimeSettings).filter((setting) => setting?.source === 'override').length;
+  const pagesNeedingAttention = fbPages.filter((pageItem) => {
+    const validation = pageChecks[pageItem.page_id];
+    const tokenReady = getResolvedPageTokenKind(pageItem, validation) === 'page_access_token';
+    const messengerReady = !!validation?.messenger_connection?.connected;
+    return !tokenReady || !messengerReady;
+  }).length;
+  const navCounts = {
+    overview: warningCount,
+    campaigns: campaigns.length,
+    queue: stats.ready ?? 0,
+    engagement: systemInfo?.pending_comment_replies ?? 0,
+    messages: systemInfo?.pending_message_replies ?? 0,
+    settings: pagesNeedingAttention || fbPages.length || runtimeOverrideCount,
+    operations: taskSummary.failed ?? 0,
+    security: users.length || (currentUser ? 1 : 0),
+  };
+  const sortedInteractions = [...interactions].sort((left, right) => new Date(right.created_at || 0).getTime() - new Date(left.created_at || 0).getTime());
+  const totalEngagementPages = Math.max(1, Math.ceil(sortedInteractions.length / ENGAGEMENT_PAGE_SIZE));
+  const pagedInteractions = sortedInteractions.slice((engagementPage - 1) * ENGAGEMENT_PAGE_SIZE, engagementPage * ENGAGEMENT_PAGE_SIZE);
+  const totalWorkerPages = Math.max(1, Math.ceil(workers.length / WORKER_PAGE_SIZE));
+  const pagedWorkers = workers.slice((workerPage - 1) * WORKER_PAGE_SIZE, workerPage * WORKER_PAGE_SIZE);
   const totalTaskPages = Math.max(1, Math.ceil(tasks.length / TASK_PAGE_SIZE));
   const pagedTasks = tasks.slice((taskPage - 1) * TASK_PAGE_SIZE, taskPage * TASK_PAGE_SIZE);
   const totalEventPages = Math.max(1, Math.ceil(events.length / SYSTEM_EVENT_PAGE_SIZE));
@@ -1071,6 +814,18 @@ function App() {
     };
   }, [token, currentUser?.role]);
   /* eslint-enable react-hooks/exhaustive-deps */
+
+  useEffect(() => {
+    if (engagementPage > totalEngagementPages) {
+      setEngagementPage(totalEngagementPages);
+    }
+  }, [engagementPage, totalEngagementPages]);
+
+  useEffect(() => {
+    if (workerPage > totalWorkerPages) {
+      setWorkerPage(totalWorkerPages);
+    }
+  }, [workerPage, totalWorkerPages]);
 
   useEffect(() => {
     if (taskPage > totalTaskPages) {
@@ -1682,1606 +1437,355 @@ function App() {
   };
 
   const renderOverviewSection = () => (
-    <div className="grid gap-6 2xl:grid-cols-12">
-      <Panel
-        className="2xl:col-span-8"
-        eyebrow="Kết nối công khai"
-        title="Webhook và cổng hệ thống"
-      >
-        <div className="grid gap-4 xl:grid-cols-3">
-          {[
-            { label: 'BASE_URL', value: systemInfo?.base_url || 'Chưa cấu hình', copyLabel: 'BASE_URL' },
-            { label: 'Đường dẫn webhook', value: systemInfo?.webhook_url || 'Chưa tạo được đường dẫn webhook', copyLabel: 'đường dẫn webhook' },
-            { label: 'Mã xác minh', value: systemInfo?.verify_token || 'Chưa có', copyLabel: 'mã xác minh' },
-          ].map((item) => (
-            <div key={item.label} className="rounded-[24px] border border-white/8 bg-black/10 p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="text-[11px] uppercase tracking-[0.24em] text-[var(--text-muted)]">{item.label}</div>
-                <button type="button" className={BUTTON_GHOST} onClick={() => handleCopy(item.value, item.copyLabel)}>
-                  <Copy className="h-4 w-4" />
-                  Sao chép
-                </button>
-              </div>
-              <div className="mt-4 break-all font-medium text-white">{item.value}</div>
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-5 grid gap-4 xl:grid-cols-2">
-          <div className="rounded-[24px] border border-white/8 bg-black/10 p-4">
-            <div className="text-[11px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Tình trạng sẵn sàng</div>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <StatusPill tone={systemInfo?.public_webhook_ready ? 'emerald' : 'rose'} icon={Globe2}>
-                {systemInfo?.public_webhook_ready ? 'Webhook có thể công khai' : 'Webhook chưa sẵn sàng'}
-              </StatusPill>
-              <StatusPill tone={systemInfo?.webhook_signature_enabled ? 'emerald' : 'amber'} icon={ShieldCheck}>
-                {systemInfo?.webhook_signature_enabled ? 'Đang xác minh chữ ký' : 'Chưa cấu hình FB_APP_SECRET'}
-              </StatusPill>
-              <StatusPill tone={healthInfo?.database?.ok ? 'emerald' : 'rose'} icon={Server}>
-                {healthInfo?.database?.ok ? 'Database ổn định' : 'Database có lỗi'}
-              </StatusPill>
-            </div>
-          </div>
-          <div className="rounded-[24px] border border-white/8 bg-black/10 p-4">
-            <div className="text-[11px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Nút thao tác nhanh</div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <button type="button" className={BUTTON_SECONDARY} onClick={() => fetchDashboard()}>
-                <RefreshCw className={cx('h-4 w-4', isRefreshing ? 'animate-spin' : '')} />
-                Làm mới số liệu
-              </button>
-              <button type="button" className={BUTTON_SECONDARY} onClick={() => handleCopy(systemInfo?.webhook_url, 'đường dẫn webhook')}>
-                <Copy className="h-4 w-4" />
-                Copy webhook
-              </button>
-              <button type="button" className={BUTTON_SECONDARY} onClick={() => handleCopy(systemInfo?.verify_token, 'mã xác minh')}>
-                <KeyRound className="h-4 w-4" />
-                Copy verify token
-              </button>
-              <a className={BUTTON_SECONDARY} href={systemInfo?.webhook_url || '#'} target="_blank" rel="noreferrer">
-                <ExternalLink className="h-4 w-4" />
-                Mở webhook
-              </a>
-            </div>
-          </div>
-        </div>
-      </Panel>
-
-      <Panel className="2xl:col-span-4" eyebrow="Điểm nóng" title="Cảnh báo cần xử lý">
-        <div className="space-y-3">
-          {(systemInfo?.warnings || []).length === 0 ? (
-            <div className="rounded-[24px] border border-emerald-400/20 bg-emerald-400/10 px-4 py-5 text-sm text-emerald-100">
-              Chưa có cảnh báo.
-            </div>
-          ) : (
-            systemInfo.warnings.map((warning) => (
-              <div key={warning} className="rounded-[24px] border border-amber-400/20 bg-amber-400/10 px-4 py-4 text-sm leading-7 text-amber-50">
-                <div className="flex items-start gap-3">
-                  <AlertTriangle className="mt-1 h-4 w-4 shrink-0" />
-                  <span>{warning}</span>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </Panel>
-
-      <Panel
-        className="2xl:col-span-7"
-        eyebrow="Nguồn nội dung"
-        title="Hiệu quả TikTok vs YouTube Shorts"
-        action={(
-          <select className={cx(FIELD_CLASS, 'min-w-[180px]')} value={overviewSourceFilter} onChange={(event) => setOverviewSourceFilter(event.target.value)}>
-            {SOURCE_PLATFORM_FILTERS.map((option) => <option key={option.value} value={option.value} style={{ color: '#06101a' }}>{option.label}</option>)}
-          </select>
-        )}
-      >
-        <div className="grid gap-4 xl:grid-cols-2">
-          {visibleOverviewSources.map((sourceItem) => (
-            <div key={sourceItem.platform} className="rounded-[24px] border border-white/8 bg-black/10 p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-[11px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Nguồn đang theo dõi</div>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <StatusPill tone={sourceItem.tone}>{sourceItem.label}</StatusPill>
-                  </div>
-                </div>
-                <div className="rounded-[22px] border border-white/8 bg-black/10 px-4 py-3 text-right">
-                  <div className="text-[10px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Campaign</div>
-                  <div className="mt-2 font-display text-[1.35rem] font-semibold text-white">{sourceItem.campaigns}</div>
-                </div>
-              </div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <InfoRow label="Tổng video" value={sourceItem.videos} emphasis />
-                <InfoRow label="Video sẵn sàng" value={sourceItem.ready} />
-              </div>
-              <div className="mt-4 space-y-3">
-                <SourceBreakdownBar label="Campaign" value={sourceItem.campaigns} max={overviewSourceMax} tone={sourceItem.tone} detail="Số chiến dịch đã gắn nguồn này." />
-                <SourceBreakdownBar label="Tổng video" value={sourceItem.videos} max={overviewSourceMax} tone={sourceItem.tone} detail="Tổng video đã vào hàng chờ hoặc lịch sử đăng." />
-                <SourceBreakdownBar label="Sẵn sàng đăng" value={sourceItem.ready} max={overviewSourceMax} tone={sourceItem.tone} detail="Video đang ở trạng thái ready." />
-              </div>
-              <div className="mt-4">
-                <div className="mb-3 text-[11px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Xu hướng 7 ngày</div>
-                <TrendTimelineChart labels={stats.source_trends?.labels || []} series={sourceItem.trend} />
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="mt-5 rounded-[24px] border border-white/8 bg-black/10 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <div className="text-[11px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Chiến dịch cần xem theo nguồn</div>
-              <div className="mt-1 text-sm text-[var(--text-soft)]">
-                {overviewSourceFilter === 'all' ? 'Đang hiển thị campaign nóng của toàn bộ nguồn.' : `Đang lọc theo ${getSourcePlatformMeta(overviewSourceFilter).label.toLowerCase()}.`}
-              </div>
-            </div>
-            <StatusPill tone={overviewFocusCampaigns.length ? 'amber' : 'emerald'}>{overviewFocusCampaigns.length} mục</StatusPill>
-          </div>
-          <div className="mt-4 space-y-3">
-            {overviewFocusCampaigns.length === 0 ? (
-              <div className="rounded-[22px] border border-white/8 bg-black/10 px-4 py-4 text-sm text-[var(--text-soft)]">
-                Không có chiến dịch nổi bật khớp bộ lọc nguồn.
-              </div>
-            ) : overviewFocusCampaigns.map((campaign) => {
-              const sourceMeta = getSourcePlatformMeta(campaign.source_platform);
-              return (
-                <button key={campaign.id} type="button" onClick={() => handleSectionChange('campaigns')} className="w-full rounded-[22px] border border-white/8 bg-black/10 px-4 py-4 text-left transition hover:border-cyan-400/20 hover:bg-cyan-400/6">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <div className="font-medium text-white">{campaign.name}</div>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <StatusPill tone={sourceMeta.tone}>{sourceMeta.label}</StatusPill>
-                        <StatusPill tone="slate">{getSyncStateMeta(campaign.last_sync_status).label}</StatusPill>
-                      </div>
-                    </div>
-                    <div className="text-sm text-[var(--text-soft)]">{campaign.video_counts?.failed ?? 0} video lỗi</div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </Panel>
-
-      <Panel className="2xl:col-span-5" eyebrow="Nhịp vận hành" title="Mốc thời gian quan trọng">
-        <div className="grid gap-4 xl:grid-cols-2">
-          <InfoRow label="Lượt đăng kế tiếp" value={formatRelTime(stats.next_publish)} emphasis />
-          <InfoRow label="Mốc cuối hàng chờ" value={formatDateTime(stats.queue_end)} />
-          <InfoRow label="Bài đăng gần nhất" value={formatDateTime(stats.last_posted)} />
-          <InfoRow label="Lần đồng bộ dashboard" value={formatDateTime(lastUpdatedAt)} />
-          <InfoRow label="Chế độ tác vụ nền" value={systemInfo?.background_jobs_mode || 'Chưa có'} />
-          <InfoRow label="Bộ lập lịch" value={healthInfo?.config?.scheduler_enabled ? `Bật, quét ${systemInfo?.scheduler_interval_minutes || 0} phút/lần` : 'Đang tắt'} />
-        </div>
-      </Panel>
-
-      <Panel className="2xl:col-span-5" eyebrow="Fanpage" title="Tình trạng kết nối trang">
-        <div className="space-y-3">
-          {fbPages.length === 0 ? (
-            <EmptyState title="Chưa có fanpage nào" description="Thêm fanpage để bắt đầu." />
-          ) : (
-            fbPages.map((pageItem) => {
-              const validation = pageChecks[pageItem.page_id];
-              const tokenMeta = getPageTokenMeta(getResolvedPageTokenKind(pageItem, validation));
-              const messengerMeta = getMessengerConnectionMeta(validation);
-              return (
-                <div key={pageItem.page_id} className="rounded-[24px] border border-white/8 bg-black/10 p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <div className="font-medium text-white">{pageItem.page_name}</div>
-                      <div className="mt-1 text-xs text-[var(--text-muted)]">{pageItem.page_id}</div>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <StatusPill tone={tokenMeta.tone}>{tokenMeta.label}</StatusPill>
-                      <StatusPill tone={messengerMeta.tone}>{messengerMeta.label}</StatusPill>
-                    </div>
-                  </div>
-                  <div className="mt-3 text-sm text-[var(--text-soft)]">{pageItem.token_preview || 'Chưa có token để hiển thị.'}</div>
-                  <div className="mt-2 text-xs text-[var(--text-muted)]">{messengerMeta.detail}</div>
-                  <div className="mt-4 mobile-action-stack sm:justify-end">
-                    <button type="button" className={BUTTON_SECONDARY} onClick={() => handleValidatePage(pageItem.page_id)} disabled={actionState[`page-validate-${pageItem.page_id}`]}>
-                      <ShieldCheck className="h-4 w-4" />
-                      {actionState[`page-validate-${pageItem.page_id}`] ? 'Đang kiểm tra...' : 'Xác minh & kiểm tra'}
-                    </button>
-                    <button
-                      type="button"
-                      className={cx(BUTTON_GHOST, 'border-rose-400/20 bg-rose-400/10 text-rose-100 hover:border-rose-400/30 hover:bg-rose-400/15')}
-                      onClick={() => handleDeleteFacebookPage(pageItem.page_id, pageItem.page_name)}
-                      disabled={!isAdmin || actionState[`delete-page-${pageItem.page_id}`]}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                      {actionState[`delete-page-${pageItem.page_id}`] ? 'Đang xóa...' : 'Xóa fanpage'}
-                    </button>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      </Panel>
-
-      {isAdmin ? (
-        <Panel className="2xl:col-span-12" eyebrow="Runtime config" title="Cấu hình hệ thống trên trang">
-          <form onSubmit={handleRuntimeConfigSave} className="space-y-5">
-            <div className="grid gap-4 xl:grid-cols-2">
-              <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">BASE_URL</span>
-                <input type="url" className={FIELD_CLASS} value={runtimeForm.BASE_URL} onChange={(event) => handleRuntimeFieldChange('BASE_URL', event.target.value)} placeholder="https://your-domain.example.com" />
-                <div className="text-xs text-[var(--text-muted)]">Nguồn: {runtimeSettings.BASE_URL?.source === 'override' ? 'Dashboard' : 'Môi trường'}</div>
-              </label>
-              <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Đường dẫn webhook</span>
-                <input type="text" className={FIELD_CLASS} value={runtimeDerived.webhook_url || ''} readOnly />
-                <div className="text-xs text-[var(--text-muted)]">Tự sinh từ `BASE_URL`.</div>
-              </label>
-              <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">FB_VERIFY_TOKEN / Mã xác minh</span>
-                <input type="text" className={FIELD_CLASS} value={runtimeForm.FB_VERIFY_TOKEN} onChange={(event) => handleRuntimeFieldChange('FB_VERIFY_TOKEN', event.target.value)} />
-                <div className="text-xs text-[var(--text-muted)]">Nguồn: {runtimeSettings.FB_VERIFY_TOKEN?.source === 'override' ? 'Dashboard' : 'Môi trường'}</div>
-              </label>
-              <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">FB_APP_SECRET</span>
-                <input type="password" className={FIELD_CLASS} value={runtimeForm.FB_APP_SECRET} onChange={(event) => handleRuntimeFieldChange('FB_APP_SECRET', event.target.value)} placeholder="Để trống rồi lưu để quay về môi trường" />
-                <div className="text-xs text-[var(--text-muted)]">Áp dụng ngay cho chữ ký webhook.</div>
-              </label>
-              <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">GEMINI_API_KEY</span>
-                <input type="password" className={FIELD_CLASS} value={runtimeForm.GEMINI_API_KEY} onChange={(event) => handleRuntimeFieldChange('GEMINI_API_KEY', event.target.value)} placeholder="Dùng cho caption và reply AI" />
-                <div className="text-xs text-[var(--text-muted)]">Worker sẽ dùng khóa mới mà không cần sửa repo.</div>
-              </label>
-              <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">TUNNEL_TOKEN</span>
-                <input type="password" className={FIELD_CLASS} value={runtimeForm.TUNNEL_TOKEN} onChange={(event) => handleRuntimeFieldChange('TUNNEL_TOKEN', event.target.value)} placeholder="Cloudflare Tunnel token" />
-                <div className="text-xs text-[var(--text-muted)]">Cần khởi động lại service `tunnel` để áp dụng.</div>
-              </label>
-              <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">TELEGRAM_BOT_TOKEN</span>
-                <input type="password" className={FIELD_CLASS} value={runtimeForm.TELEGRAM_BOT_TOKEN} onChange={(event) => handleRuntimeFieldChange('TELEGRAM_BOT_TOKEN', event.target.value)} placeholder="Bot Token từ BotFather" />
-                <div className="text-xs text-[var(--text-muted)]">Nguồn: {runtimeSettings.TELEGRAM_BOT_TOKEN?.source === 'override' ? 'Dashboard' : 'Môi trường'}</div>
-              </label>
-              <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">TELEGRAM_CHAT_ID</span>
-                <input type="text" className={FIELD_CLASS} value={runtimeForm.TELEGRAM_CHAT_ID} onChange={(event) => handleRuntimeFieldChange('TELEGRAM_CHAT_ID', event.target.value)} placeholder="Mã định danh chat nhận thông báo" />
-                <div className="text-xs text-[var(--text-muted)]">Nguồn: {runtimeSettings.TELEGRAM_CHAT_ID?.source === 'override' ? 'Dashboard' : 'Môi trường'}</div>
-              </label>
-            </div>
-            <div className="grid gap-3 xl:grid-cols-3">
-              <div className="rounded-[22px] border border-white/8 bg-black/10 px-4 py-4 text-sm text-[var(--text-soft)]">Để trống một ô rồi lưu nếu muốn quay về giá trị môi trường.</div>
-              <div className="rounded-[22px] border border-white/8 bg-black/10 px-4 py-4 text-sm text-[var(--text-soft)]">Các giá trị được lưu ngoài repo và xuất ra file runtime riêng.</div>
-              <div className="rounded-[22px] border border-white/8 bg-black/10 px-4 py-4 text-sm text-[var(--text-soft)]">File runtime: {runtimeDerived.runtime_env_file || 'backend/runtime.env'}</div>
-            </div>
-            <div className="flex flex-wrap justify-end gap-2">
-              <button type="button" className={BUTTON_GHOST} onClick={() => setRuntimeForm(extractRuntimeForm(runtimeConfig))}>
-                Khôi phục giá trị đã lưu
-              </button>
-              <button type="submit" disabled={actionState['save-runtime-config']} className={BUTTON_PRIMARY}>
-                <ShieldCheck className="h-4 w-4" />
-                {actionState['save-runtime-config'] ? 'Đang lưu...' : 'Lưu cấu hình'}
-              </button>
-            </div>
-          </form>
-        </Panel>
-      ) : null}
-    </div>
+    <OverviewSection
+      state={{
+        systemInfo,
+        healthInfo,
+        isRefreshing,
+        overviewSourceFilter,
+        visibleOverviewSources,
+        overviewSourceMax,
+        stats,
+        overviewFocusCampaigns,
+        lastUpdatedAt,
+        fbPages,
+        connectedMessagePages,
+        pagesNeedingAttention,
+        runtimeOverrideCount,
+        isAdmin,
+      }}
+      actions={{
+        fetchDashboard,
+        handleCopy,
+        setOverviewSourceFilter,
+        handleSectionChange,
+      }}
+      helpers={{
+        formatDateTime,
+        formatRelTime,
+        getSourcePlatformMeta,
+        getSyncStateMeta,
+      }}
+      constants={{
+        SOURCE_PLATFORM_FILTERS,
+      }}
+      classes={{
+        FIELD_CLASS,
+        BUTTON_PRIMARY,
+        BUTTON_SECONDARY,
+        BUTTON_GHOST,
+      }}
+    />
   );
 
   const renderCampaignSection = () => (
-    <div className="grid gap-6 2xl:grid-cols-12">
-      <Panel className="2xl:col-span-7" eyebrow="Nguồn mới" title="Tạo chiến dịch đăng tự động">
-        {(() => {
-          const sourcePreview = detectSourcePreview(formData.source_url);
-          return (
-        <form onSubmit={handleCampaignSubmit} className="grid gap-4 md:grid-cols-2">
-          <label className="space-y-2 md:col-span-2">
-            <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Trang đích</span>
-            <select required className={FIELD_CLASS} value={formData.target_page_id} onChange={(event) => setFormData({ ...formData, target_page_id: event.target.value })} disabled={fbPages.length === 0}>
-              {fbPages.length === 0 ? <option value="">Chưa có trang nào</option> : fbPages.map((pageItem) => <option key={pageItem.page_id} value={pageItem.page_id} style={{ color: '#06101a' }}>{pageItem.page_name}</option>)}
-            </select>
-          </label>
-          <label className="space-y-2">
-            <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Tên chiến dịch</span>
-            <input required type="text" className={FIELD_CLASS} placeholder="Ví dụ: Giải trí mỗi ngày" value={formData.name} onChange={(event) => setFormData({ ...formData, name: event.target.value })} />
-          </label>
-          <label className="space-y-2">
-            <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Khoảng cách đăng (phút)</span>
-            <input required type="number" min="0" className={FIELD_CLASS} value={formData.schedule_interval} onChange={(event) => setFormData({ ...formData, schedule_interval: parseInt(event.target.value, 10) || 0 })} />
-          </label>
-          <label className="space-y-2 md:col-span-2">
-            <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Nguồn nội dung</span>
-            <input required type="url" className={FIELD_CLASS} placeholder="https://www.tiktok.com/@... hoặc https://www.youtube.com/shorts/..." value={formData.source_url} onChange={(event) => setFormData({ ...formData, source_url: event.target.value })} />
-          </label>
-          <div className="md:col-span-2 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-            <div className="rounded-[22px] border border-white/8 bg-black/10 px-4 py-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="text-[11px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Nhận diện nguồn</div>
-                <StatusPill tone={sourcePreview.tone}>{sourcePreview.title}</StatusPill>
-              </div>
-              <div className="mt-3 text-sm leading-7 text-[var(--text-soft)]">{sourcePreview.detail}</div>
-            </div>
-            <div className="rounded-[22px] border border-white/8 bg-black/10 px-4 py-4 text-sm leading-7 text-[var(--text-soft)]">
-              <div className="text-[11px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Ví dụ hợp lệ</div>
-              <div className="mt-3 break-all">TikTok: `https://www.tiktok.com/@creator/video/...`</div>
-              <div className="mt-1 break-all">YouTube Shorts: `https://www.youtube.com/shorts/...`</div>
-              <div className="mt-1 break-all">Nguồn Shorts: `https://www.youtube.com/@creator/shorts`</div>
-            </div>
-          </div>
-          <label className="md:col-span-2 flex items-center gap-3 rounded-[24px] border border-white/8 bg-black/10 px-4 py-4">
-            <input type="checkbox" checked={formData.auto_post} onChange={(event) => setFormData({ ...formData, auto_post: event.target.checked })} />
-            <div>
-              <div className="font-medium text-white">Cho phép tự đăng ngay khi hàng chờ đến lượt</div>
-              <div className="text-sm text-[var(--text-soft)]">Worker sẽ tự đăng theo lịch.</div>
-            </div>
-          </label>
-          <div className="md:col-span-2 flex justify-end">
-            <button type="submit" disabled={fbPages.length === 0 || actionState['create-campaign']} className={BUTTON_PRIMARY}>
-              <PlusCircle className="h-4 w-4" />
-              {actionState['create-campaign'] ? 'Đang tạo chiến dịch...' : 'Tạo và đưa vào hàng đợi'}
-            </button>
-          </div>
-        </form>
-          );
-        })()}
-      </Panel>
-
-      <Panel className="2xl:col-span-5" eyebrow="Fanpage" title="Kết nối nhiều trang từ một app Meta">
-        <div className="space-y-5">
-          <form onSubmit={handleDiscoverFacebookPages} className="rounded-[24px] border border-white/8 bg-black/10 p-4">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="font-medium text-white">Import fanpage bằng User Access Token</div>
-                <div className="mt-2 text-sm leading-7 text-[var(--text-soft)]">
-                  Dùng một app Meta chung để tải danh sách fanpage bạn đang quản lý, rồi chọn nhiều trang để lưu vào hệ thống.
-                </div>
-              </div>
-              <StatusPill tone="sky">Khuyến nghị</StatusPill>
-            </div>
-            <label className="mt-4 block space-y-2">
-              <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">User Access Token</span>
-              <input
-                required
-                type="password"
-                className={FIELD_CLASS}
-                placeholder="Dán User Access Token có quyền pages_show_list"
-                value={fbImportToken}
-                onChange={(event) => setFbImportToken(event.target.value)}
-              />
-            </label>
-            <div className="mt-4 mobile-action-stack">
-              <button type="submit" disabled={actionState['discover-pages']} className={BUTTON_PRIMARY}>
-                <Globe2 className="h-4 w-4" />
-                {actionState['discover-pages'] ? 'Đang tải danh sách...' : 'Tải danh sách fanpage'}
-              </button>
-              <button
-                type="button"
-                className={BUTTON_SECONDARY}
-                onClick={handleRefreshFacebookPages}
-                disabled={fbPages.length === 0 || actionState['refresh-pages']}
-              >
-                <RefreshCw className="h-4 w-4" />
-                {actionState['refresh-pages'] ? 'Đang làm mới...' : 'Làm mới token fanpage đã có'}
-              </button>
-              {discoveredFbPages.length > 0 ? (
-                <button type="button" className={BUTTON_GHOST} onClick={handleToggleAllDiscoveredPages}>
-                  {allDiscoveredSelected ? 'Bỏ chọn tất cả' : 'Chọn tất cả'}
-                </button>
-              ) : null}
-            </div>
-            {discoverySubject ? (
-              <div className="mt-4 rounded-[20px] border border-white/8 bg-black/10 px-4 py-3 text-sm text-[var(--text-soft)]">
-                Đang xem fanpage của <span className="font-medium text-white">{discoverySubject.token_subject_name || discoverySubject.token_subject_id}</span>
-              </div>
-            ) : null}
-          </form>
-
-          {discoveredFbPages.length > 0 ? (
-            <div className="rounded-[24px] border border-white/8 bg-black/10 p-4">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div>
-                  <div className="font-medium text-white">Chọn fanpage cần import</div>
-                  <div className="mt-2 text-sm text-[var(--text-soft)]">
-                    Hệ thống sẽ lấy luôn Page Access Token của từng fanpage được chọn từ User Access Token hiện tại.
-                  </div>
-                </div>
-                <StatusPill tone="amber">{selectedDiscoveredPageIds.length}/{discoveredFbPages.length} đã chọn</StatusPill>
-              </div>
-              <div className="mt-4 space-y-3">
-                {discoveredFbPages.map((pageItem) => {
-                  const isSelected = selectedDiscoveredPageIds.includes(pageItem.page_id);
-                  return (
-                    <label
-                      key={pageItem.page_id}
-                      className={cx(
-                        'flex cursor-pointer items-start gap-3 rounded-[20px] border px-4 py-4 transition',
-                        isSelected
-                          ? 'border-cyan-400/25 bg-cyan-400/10'
-                          : 'border-white/8 bg-black/10 hover:border-white/15 hover:bg-black/15',
-                      )}
-                    >
-                      <input
-                        type="checkbox"
-                        className="mt-1"
-                        checked={isSelected}
-                        onChange={() => handleToggleDiscoveredPage(pageItem.page_id)}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <div className="font-medium text-white">{pageItem.page_name}</div>
-                          {pageItem.already_configured ? <StatusPill tone="amber">Đã có trong hệ thống</StatusPill> : null}
-                          {pageItem.has_page_access_token ? <StatusPill tone="emerald">Có Page Token</StatusPill> : <StatusPill tone="rose">Thiếu Page Token</StatusPill>}
-                        </div>
-                        <div className="mt-1 text-xs text-[var(--text-muted)]">{pageItem.page_id}</div>
-                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                          <InfoRow label="Danh mục" value={pageItem.category || 'Chưa rõ'} compact />
-                          <InfoRow label="Quyền" value={(pageItem.tasks || []).join(', ') || 'Chưa có'} compact />
-                        </div>
-                      </div>
-                    </label>
-                  );
-                })}
-              </div>
-              <div className="mt-4 mobile-action-stack">
-                <button
-                  type="button"
-                  className={BUTTON_PRIMARY}
-                  onClick={handleImportFacebookPages}
-                  disabled={selectedDiscoveredPageIds.length === 0 || actionState['import-pages']}
-                >
-                  <PlusCircle className="h-4 w-4" />
-                  {actionState['import-pages'] ? 'Đang import...' : 'Import fanpage đã chọn'}
-                </button>
-                <button
-                  type="button"
-                  className={BUTTON_GHOST}
-                  onClick={() => {
-                    setDiscoveredFbPages([]);
-                    setSelectedDiscoveredPageIds([]);
-                    setDiscoverySubject(null);
-                  }}
-                >
-                  Xóa danh sách
-                </button>
-              </div>
-            </div>
-          ) : null}
-
-          <form onSubmit={handleFbSubmit} className="rounded-[24px] border border-white/8 bg-black/10 p-4">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="font-medium text-white">Nhập tay fanpage</div>
-                <div className="mt-2 text-sm text-[var(--text-soft)]">
-                  Giữ làm chế độ dự phòng khi bạn chỉ muốn thêm một trang riêng lẻ bằng Page Access Token.
-                </div>
-              </div>
-              <StatusPill tone="slate">Fallback</StatusPill>
-            </div>
-            <div className="mt-4 space-y-4">
-              <label className="block space-y-2">
-                <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Mã trang</span>
-                <input required type="text" className={FIELD_CLASS} placeholder="Page ID" value={fbForm.page_id} onChange={(event) => setFbForm({ ...fbForm, page_id: event.target.value })} />
-              </label>
-              <label className="block space-y-2">
-                <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Tên trang</span>
-                <input required type="text" className={FIELD_CLASS} placeholder="Tên fanpage" value={fbForm.page_name} onChange={(event) => setFbForm({ ...fbForm, page_name: event.target.value })} />
-              </label>
-              <label className="block space-y-2">
-                <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Page Access Token</span>
-                <input required type="password" className={FIELD_CLASS} placeholder="Dán token trang Facebook thật" value={fbForm.long_lived_access_token} onChange={(event) => setFbForm({ ...fbForm, long_lived_access_token: event.target.value })} />
-              </label>
-              <button type="submit" disabled={actionState['save-page']} className={cx(BUTTON_PRIMARY, 'w-full')}>
-                <Globe2 className="h-4 w-4" />
-                {actionState['save-page'] ? 'Đang lưu token...' : 'Lưu cấu hình fanpage'}
-              </button>
-            </div>
-          </form>
-        </div>
-      </Panel>
-
-      <Panel className="2xl:col-span-4" eyebrow="Danh sách trang" title="Fanpage đang sẵn sàng">
-        <div className="space-y-4">
-          {fbPages.length === 0 ? (
-            <EmptyState title="Chưa có fanpage" description="Thêm fanpage để dùng." />
-          ) : (
-            fbPages.map((pageItem) => {
-              const validation = pageChecks[pageItem.page_id];
-              const tokenMeta = getPageTokenMeta(getResolvedPageTokenKind(pageItem, validation));
-              const messengerMeta = getMessengerConnectionMeta(validation);
-              return (
-                <div key={pageItem.page_id} className="rounded-[24px] border border-white/8 bg-black/10 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="font-medium text-white">{pageItem.page_name}</div>
-                      <div className="mt-1 text-xs text-[var(--text-muted)]">{pageItem.page_id}</div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <StatusPill tone={tokenMeta.tone}>{tokenMeta.label}</StatusPill>
-                        <StatusPill tone={messengerMeta.tone}>{messengerMeta.label}</StatusPill>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-3 text-sm text-[var(--text-soft)]">{pageItem.token_preview || 'Chưa có token để hiển thị.'}</div>
-                  <div className="mt-3 rounded-2xl border border-white/8 bg-black/10 px-3 py-3 text-sm text-[var(--text-soft)]">{messengerMeta.detail}</div>
-                  {validation ? (
-                    <div className={cx('mt-3 rounded-2xl border px-3 py-3 text-sm', validation.ok ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100' : 'border-rose-400/20 bg-rose-400/10 text-rose-100')}>
-                      <div>{validation.message}</div>
-                      <div className="mt-1 text-xs opacity-80">Kiểm tra lúc {formatDateTime(validation.checked_at)}</div>
-                    </div>
-                  ) : null}
-                  <div className="mobile-action-stack mt-4 sm:justify-end">
-                    <button
-                      type="button"
-                      className={BUTTON_GHOST}
-                      onClick={() => handleSubscribeMessages(pageItem.page_id)}
-                      disabled={actionState[`page-subscribe-${pageItem.page_id}`]}
-                    >
-                      <MessagesSquare className="h-4 w-4" />
-                          {actionState[`page-subscribe-${pageItem.page_id}`] ? 'Đang đăng ký...' : 'Đăng ký webhook'}
-                    </button>
-                    <button type="button" className={BUTTON_SECONDARY} onClick={() => handleValidatePage(pageItem.page_id)} disabled={actionState[`page-validate-${pageItem.page_id}`]}>
-                      <ShieldCheck className="h-4 w-4" />
-                      {actionState[`page-validate-${pageItem.page_id}`] ? 'Đang kiểm tra...' : 'Xác minh & kiểm tra'}
-                    </button>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      </Panel>
-
-      <Panel className="2xl:col-span-8" eyebrow="Danh mục chiến dịch" title="Toàn bộ chiến dịch đang quản lý">
-        <div className="mb-5 grid gap-4 xl:grid-cols-[220px_minmax(0,1fr)]">
-          <label className="space-y-2">
-            <span className="flex items-center gap-2 text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">
-              <Filter className="h-3.5 w-3.5" />
-              Nguồn chiến dịch
-            </span>
-            <select className={FIELD_CLASS} value={campaignSourceFilter} onChange={(event) => setCampaignSourceFilter(event.target.value)}>
-              {SOURCE_PLATFORM_FILTERS.map((option) => <option key={option.value} value={option.value} style={{ color: '#06101a' }}>{option.label}</option>)}
-            </select>
-          </label>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <InfoRow label="Campaign TikTok" value={campaignSourceSummary.tiktok} emphasis={campaignSourceFilter === 'tiktok'} />
-            <InfoRow label="Campaign Shorts" value={campaignSourceSummary.youtube} emphasis={campaignSourceFilter === 'youtube'} />
-            <InfoRow label="Khớp bộ lọc" value={filteredCampaigns.length} />
-          </div>
-        </div>
-        {filteredCampaigns.length === 0 ? (
-          <EmptyState
-            title={campaigns.length === 0 ? 'Chưa có chiến dịch nào' : 'Không có chiến dịch khớp bộ lọc'}
-            description={campaigns.length === 0 ? 'Tạo chiến dịch để bắt đầu.' : 'Đổi bộ lọc nguồn để xem thêm.'}
-          />
-        ) : (
-          <div className="grid gap-4 xl:grid-cols-2">
-            {filteredCampaigns.map((campaign) => {
-              const syncMeta = getSyncStateMeta(campaign.last_sync_status);
-              const isExpanded = !!expandedItems[`campaign:${campaign.id}`];
-              const sourcePlatformMeta = getSourcePlatformMeta(campaign.source_platform);
-              return (
-                <article key={campaign.id} className="rounded-[22px] border border-white/8 bg-black/10 p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="font-display text-lg font-semibold text-white sm:text-[1.15rem]">{campaign.name}</div>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <span className={cx('inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium', getStatusClasses(campaign.status))}>
-                          <StatusIcon status={campaign.status} />
-                          {getStatusLabel(campaign.status)}
-                        </span>
-                        <span className={cx('inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium', getStatusClasses(syncMeta.tone))}>
-                          <StatusIcon status={syncMeta.tone} />
-                          {syncMeta.label}
-                        </span>
-                        <StatusPill tone={sourcePlatformMeta.tone}>{sourcePlatformMeta.label}</StatusPill>
-                        <StatusPill tone="slate">{getSourceKindLabel(campaign.source_kind)}</StatusPill>
-                      </div>
-                    </div>
-                    <div className="rounded-[22px] border border-white/8 bg-black/10 px-4 py-3 text-right">
-                      <div className="text-[10px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Trang đích</div>
-                      <div className="mt-2 text-sm font-medium text-white">{campaign.target_page_name || campaign.target_page_id || 'Chưa gắn'}</div>
-                    </div>
-                  </div>
-                  <div className="mt-3 text-sm text-[var(--text-soft)]">
-                    {(campaign.video_counts?.total ?? 0)} video • {(campaign.video_counts?.ready ?? 0)} sẵn sàng • {campaign.schedule_interval || 0} phút/lần
-                  </div>
-                  <div className="mt-3 flex justify-start">
-                    <DetailToggle expanded={isExpanded} onClick={() => toggleExpandedItem(`campaign:${campaign.id}`)} />
-                  </div>
-                  {isExpanded ? (
-                    <>
-                      <div className="mt-4 rounded-[22px] border border-white/8 bg-black/10 px-4 py-3">
-                        <div className="flex items-center gap-2 text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">
-                          <CloudDownload className="h-3.5 w-3.5" />
-                          Nguồn crawl
-                        </div>
-                        <a href={campaign.source_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-2 break-all text-sm text-cyan-100 hover:text-white">
-                          {campaign.source_url}
-                          <ExternalLink className="h-4 w-4 shrink-0" />
-                        </a>
-                      </div>
-                      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                        <InfoRow label="Nền tảng nguồn" value={sourcePlatformMeta.label} />
-                        <InfoRow label="Kiểu nguồn" value={getSourceKindLabel(campaign.source_kind)} />
-                        <InfoRow label="Tổng video" value={campaign.video_counts?.total ?? 0} emphasis />
-                        <InfoRow label="Sẵn sàng" value={campaign.video_counts?.ready ?? 0} />
-                        <InfoRow label="Thất bại" value={campaign.video_counts?.failed ?? 0} />
-                        <InfoRow label="Khoảng cách" value={`${campaign.schedule_interval || 0} phút`} />
-                        <InfoRow label="Tự đăng" value={campaign.auto_post ? 'Đang bật' : 'Đang tắt'} />
-                        <InfoRow label="Lần sync gần nhất" value={formatDateTime(campaign.last_synced_at)} />
-                      </div>
-                      {campaign.last_sync_error ? <div className="mt-4 rounded-[22px] border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm leading-7 text-rose-100">{campaign.last_sync_error}</div> : null}
-                      <div className="mobile-action-stack mt-5">
-                        <button type="button" className={BUTTON_SECONDARY} onClick={() => handleCampaignAction(campaign, 'sync')} disabled={actionState[`campaign-${campaign.id}-sync`]}>
-                          <RefreshCw className={cx('h-4 w-4', actionState[`campaign-${campaign.id}-sync`] ? 'animate-spin' : '')} />
-                          Đồng bộ lại
-                        </button>
-                        {campaign.status === 'active' ? (
-                          <button type="button" className={BUTTON_GHOST} onClick={() => handleCampaignAction(campaign, 'pause')} disabled={actionState[`campaign-${campaign.id}-pause`]}>
-                            <Pause className="h-4 w-4" />
-                            Tạm dừng
-                          </button>
-                        ) : (
-                          <button type="button" className={BUTTON_GHOST} onClick={() => handleCampaignAction(campaign, 'resume')} disabled={actionState[`campaign-${campaign.id}-resume`]}>
-                            <Play className="h-4 w-4" />
-                            Kích hoạt lại
-                          </button>
-                        )}
-                        <button type="button" className={cx(BUTTON_GHOST, 'text-rose-100')} onClick={() => handleCampaignAction(campaign, 'delete')} disabled={actionState[`campaign-${campaign.id}-delete`]}>
-                          <Trash2 className="h-4 w-4" />
-                          Xóa chiến dịch
-                        </button>
-                      </div>
-                    </>
-                  ) : null}
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </Panel>
-    </div>
+    <CampaignSection
+      state={{
+        formData,
+        fbPages,
+        actionState,
+        campaignSourceFilter,
+        campaigns,
+        campaignSourceSummary,
+        filteredCampaigns,
+        expandedItems,
+      }}
+      actions={{
+        setFormData,
+        handleCampaignSubmit,
+        handleSectionChange,
+        setCampaignSourceFilter,
+        toggleExpandedItem,
+        handleCampaignAction,
+      }}
+      helpers={{
+        detectSourcePreview,
+        getSyncStateMeta,
+        getSourcePlatformMeta,
+        getStatusClasses,
+        getStatusLabel,
+        getSourceKindLabel,
+        formatDateTime,
+      }}
+      constants={{
+        SOURCE_PLATFORM_FILTERS,
+      }}
+      classes={{
+        FIELD_CLASS,
+        BUTTON_PRIMARY,
+        BUTTON_SECONDARY,
+        BUTTON_GHOST,
+      }}
+    />
   );
   const renderQueueSection = () => (
-    <div className="space-y-6">
-      <Panel eyebrow="Bộ lọc" title="Hàng chờ đăng bài">
-        <div className="grid gap-4 xl:grid-cols-[220px_280px_220px_minmax(0,1fr)]">
-          <label className="space-y-2">
-            <span className="flex items-center gap-2 text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">
-              <Filter className="h-3.5 w-3.5" />
-              Trạng thái video
-            </span>
-            <select className={FIELD_CLASS} value={filters.status} onChange={(event) => {
-              setPage(1);
-              setFilters((current) => ({ ...current, status: event.target.value }));
-            }}>
-              {STATUS_FILTERS.map((option) => <option key={option.value} value={option.value} style={{ color: '#06101a' }}>{option.label}</option>)}
-            </select>
-          </label>
-          <label className="space-y-2">
-            <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Chiến dịch</span>
-            <select className={FIELD_CLASS} value={filters.campaignId} onChange={(event) => {
-              setPage(1);
-              setFilters((current) => ({ ...current, campaignId: event.target.value }));
-            }}>
-              <option value="all" style={{ color: '#06101a' }}>Tất cả chiến dịch</option>
-              {campaigns.map((campaign) => <option key={campaign.id} value={campaign.id} style={{ color: '#06101a' }}>{campaign.name}</option>)}
-            </select>
-          </label>
-          <label className="space-y-2">
-            <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Nguồn nội dung</span>
-            <select className={FIELD_CLASS} value={filters.sourcePlatform} onChange={(event) => {
-              setPage(1);
-              setFilters((current) => ({ ...current, sourcePlatform: event.target.value }));
-            }}>
-              {SOURCE_PLATFORM_FILTERS.map((option) => <option key={option.value} value={option.value} style={{ color: '#06101a' }}>{option.label}</option>)}
-            </select>
-          </label>
-          <div className="grid gap-3 sm:grid-cols-5">
-            <InfoRow label="Khớp bộ lọc" value={filteredVideoTotal} emphasis />
-            <InfoRow label="TikTok sẵn sàng" value={stats.by_source?.tiktok?.ready ?? 0} />
-            <InfoRow label="Shorts sẵn sàng" value={stats.by_source?.youtube?.ready ?? 0} />
-            <InfoRow label="Đến lượt kế tiếp" value={formatRelTime(stats.next_publish)} />
-            <InfoRow label="Cuối hàng chờ" value={formatDateTime(stats.queue_end)} />
-          </div>
-        </div>
-      </Panel>
-
-      <Panel eyebrow="Danh sách video" title="Can thiệp trực tiếp vào lịch đăng" action={<div className="rounded-[22px] border border-white/8 bg-black/10 px-4 py-3 text-sm text-[var(--text-soft)]">Trang {page} / {totalPages}</div>}>
-        {videos.length === 0 ? (
-          <EmptyState title="Không có video phù hợp bộ lọc" description="Thử đổi bộ lọc." />
-        ) : (
-          <div className="space-y-4">
-            {videos.map((video) => {
-              const isExpanded = !!expandedItems[`video:${video.id}`];
-              const sourcePlatformMeta = getSourcePlatformMeta(video.source_platform);
-              return (
-                <article key={video.id} className="rounded-[22px] border border-white/8 bg-black/10 p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <div className="text-[11px] uppercase tracking-[0.24em] text-[var(--text-muted)]">{video.campaign_name || 'Chưa rõ chiến dịch'}</div>
-                      <div className="mt-2 font-display text-base font-semibold text-white sm:text-[1.05rem]">{video.original_id}</div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <span className={cx('inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium', getStatusClasses(video.status))}>
-                          <StatusIcon status={video.status} />
-                          {getStatusLabel(video.status)}
-                        </span>
-                        <StatusPill tone={sourcePlatformMeta.tone}>{sourcePlatformMeta.label}</StatusPill>
-                        <StatusPill tone="slate">{getSourceKindLabel(video.source_kind)}</StatusPill>
-                        <StatusPill tone={video.target_page_name ? 'sky' : 'amber'} icon={Globe2}>{video.target_page_name || video.target_page_id || 'Chưa gắn fanpage'}</StatusPill>
-                      </div>
-                    </div>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <InfoRow label="Lịch đăng" value={formatDateTime(video.publish_time)} emphasis />
-                      <InfoRow label="Số lần retry" value={video.retry_count ?? 0} />
-                    </div>
-                  </div>
-                  <div className="mt-3 text-sm text-[var(--text-soft)]">
-                    {summarizeText(captionDrafts[video.id] ?? video.ai_caption ?? video.original_caption, 'Chưa có caption để xem nhanh.')}
-                  </div>
-                  <div className="mt-3 flex justify-start">
-                    <DetailToggle expanded={isExpanded} onClick={() => toggleExpandedItem(`video:${video.id}`)} />
-                  </div>
-                  {isExpanded ? (
-                    <div className="mt-5 grid gap-5 xl:grid-cols-[0.88fr_1.12fr]">
-                      <div className="space-y-4">
-                        <div className="rounded-[24px] border border-white/8 bg-black/10 p-4">
-                          <div className="flex items-center gap-2 text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">
-                            <CloudDownload className="h-3.5 w-3.5" />
-                            Nguồn video
-                          </div>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <StatusPill tone={sourcePlatformMeta.tone}>{sourcePlatformMeta.label}</StatusPill>
-                            <StatusPill tone="slate">{getSourceKindLabel(video.source_kind)}</StatusPill>
-                          </div>
-                          {video.source_video_url ? (
-                            <a href={video.source_video_url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 break-all text-sm text-cyan-100 hover:text-white">
-                              {video.source_video_url}
-                              <ExternalLink className="h-4 w-4 shrink-0" />
-                            </a>
-                          ) : <div className="mt-3 text-sm text-[var(--text-soft)]">Chưa có đường dẫn nguồn.</div>}
-                        </div>
-                        <div className="rounded-[24px] border border-white/8 bg-black/10 p-4">
-                          <div className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Caption gốc</div>
-                          <div className="mt-3 whitespace-pre-wrap text-sm leading-7 text-[var(--text-soft)]">{video.original_caption || 'Chưa có caption gốc từ nguồn.'}</div>
-                        </div>
-                        {video.last_error ? <div className="rounded-[24px] border border-rose-400/20 bg-rose-400/10 p-4 text-sm leading-7 text-rose-100">{video.last_error}</div> : null}
-                      </div>
-                      <div className="rounded-[24px] border border-white/8 bg-black/10 p-4">
-                        <div className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Caption AI có thể chỉnh tay</div>
-                        <textarea className={cx(FIELD_CLASS, 'mt-4 min-h-[220px] resize-y')} value={captionDrafts[video.id] ?? ''} onChange={(event) => handleCaptionChange(video.id, event.target.value)} placeholder="Chú thích AI sẽ xuất hiện ở đây..." />
-                        <div className="mobile-action-stack mt-4">
-                          {(video.status === 'ready' || video.status === 'pending') ? <button type="button" className={BUTTON_SECONDARY} onClick={() => handlePrioritize(video.id)} disabled={actionState[`video-${video.id}`]}><Play className="h-4 w-4" />{actionState[`video-${video.id}`] ? 'Đang xử lý...' : video.status === 'pending' ? 'Tải & đăng ngay' : 'Đẩy lên đầu hàng chờ'}</button> : null}
-                          {video.status === 'failed' ? <button type="button" className={BUTTON_SECONDARY} onClick={() => handleRetryVideo(video.id)} disabled={actionState[`video-retry-${video.id}`]}><RefreshCw className="h-4 w-4" />{actionState[`video-retry-${video.id}`] ? 'Đang retry...' : 'Retry video'}</button> : null}
-                          <button type="button" className={BUTTON_GHOST} onClick={() => handleRegenerateCaption(video.id)} disabled={actionState[`video-generate-${video.id}`]}>
-                            <Zap className="h-4 w-4" />
-                            {actionState[`video-generate-${video.id}`] ? 'Đang tạo lại...' : 'Tạo lại caption'}
-                          </button>
-                          <button type="button" className={BUTTON_PRIMARY} onClick={() => handleSaveCaption(video.id)} disabled={actionState[`video-caption-${video.id}`]}>
-                            <CircleCheck className="h-4 w-4" />
-                            {actionState[`video-caption-${video.id}`] ? 'Đang lưu...' : 'Lưu caption'}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
-                </article>
-              );
-            })}
-          </div>
-        )}
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/8 pt-5">
-          <div className="text-sm text-[var(--text-soft)]">Đang xem {videos.length} video ở trang {page}.</div>
-          <div className="mobile-action-stack sm:justify-end">
-            <button type="button" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))} className={BUTTON_GHOST}>Trước</button>
-            <button type="button" disabled={page >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))} className={BUTTON_GHOST}>Sau</button>
-          </div>
-        </div>
-      </Panel>
-    </div>
+    <QueueSection
+      state={{
+        filters,
+        page,
+        totalPages,
+        filteredVideoTotal,
+        stats,
+        videos,
+        campaigns,
+        captionDrafts,
+        expandedItems,
+        actionState,
+      }}
+      actions={{
+        setPage,
+        setFilters,
+        toggleExpandedItem,
+        handleCaptionChange,
+        handlePrioritize,
+        handleRetryVideo,
+        handleRegenerateCaption,
+        handleSaveCaption,
+      }}
+      helpers={{
+        formatRelTime,
+        formatDateTime,
+        summarizeText,
+        getSourcePlatformMeta,
+        getStatusClasses,
+        getStatusLabel,
+        getSourceKindLabel,
+      }}
+      constants={{
+        STATUS_FILTERS,
+        SOURCE_PLATFORM_FILTERS,
+      }}
+      classes={{
+        FIELD_CLASS,
+        BUTTON_PRIMARY,
+        BUTTON_SECONDARY,
+        BUTTON_GHOST,
+      }}
+    />
   );
 
   const renderEngagementSection = () => (
-    <div className="space-y-6">
-      <Panel eyebrow="Luồng bình luận" title="Phản hồi Facebook theo từng tình huống">
-        <div className="grid gap-4 lg:grid-cols-3">
-          <InfoRow label="Bình luận đang chờ" value={systemInfo?.pending_comment_replies ?? 0} emphasis />
-          <InfoRow label="Tổng mục đang hiển thị" value={interactions.length} />
-          <InfoRow label="Trang đã kết nối" value={stats.connected_pages ?? 0} />
-        </div>
-      </Panel>
-      <Panel eyebrow="Nhật ký tương tác" title="Các bình luận gần nhất">
-        {interactions.length === 0 ? (
-          <EmptyState title="Chưa có bình luận nào" description="Bình luận sẽ hiện tại đây." />
-        ) : (
-          <div className="space-y-4">
-            {interactions.map((log) => {
-              const targetPage = fbPages.find((pageItem) => pageItem.page_id === log.page_id);
-              const isExpanded = !!expandedItems[`comment:${log.id}`];
-              return (
-                <article key={log.id} className="rounded-[22px] border border-white/8 bg-black/10 p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div>
-                      <div className="font-medium text-white">{targetPage?.page_name || log.page_id}</div>
-                      <div className="mt-1 text-xs text-[var(--text-muted)]">Người dùng: {log.user_id} • Bình luận: {log.comment_id}</div>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className={cx('inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium', getStatusClasses(log.status))}>
-                        <StatusIcon status={log.status} />
-                        {getStatusLabel(log.status)}
-                      </span>
-                      <StatusPill tone="slate" icon={Clock}>{formatDateTime(log.created_at)}</StatusPill>
-                    </div>
-                  </div>
-                  <div className="mt-3 text-sm text-[var(--text-soft)]">{summarizeText(log.user_message, 'Chưa có bình luận.')}</div>
-                  <div className="mt-3 flex justify-start">
-                    <DetailToggle expanded={isExpanded} onClick={() => toggleExpandedItem(`comment:${log.id}`)} />
-                  </div>
-                  {isExpanded ? (
-                    <div className="mt-5 grid gap-4 xl:grid-cols-2">
-                      <div className="rounded-[24px] border border-white/8 bg-black/10 p-4">
-                        <div className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Tin nhắn người dùng</div>
-                        <div className="mt-3 whitespace-pre-wrap text-sm leading-7 text-white">{log.user_message}</div>
-                      </div>
-                      <div className="rounded-[24px] border border-white/8 bg-black/10 p-4">
-                        <div className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Phản hồi AI</div>
-                        <div className="mt-3 whitespace-pre-wrap text-sm leading-7 text-[var(--text-soft)]">{log.ai_reply || 'AI chưa tạo phản hồi cho mục này.'}</div>
-                      </div>
-                    </div>
-                  ) : null}
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </Panel>
-    </div>
+    <EngagementSection
+      state={{
+        systemInfo,
+        interactions,
+        engagementPage,
+        totalEngagementPages,
+        pagedInteractions,
+        stats,
+        fbPages,
+        expandedItems,
+      }}
+      actions={{
+        setEngagementPage,
+        toggleExpandedItem,
+      }}
+      helpers={{
+        formatDateTime,
+        summarizeText,
+        getStatusClasses,
+        getStatusLabel,
+      }}
+    />
+  );
+  const renderMessagesSection = () => (
+    <MessagesSection
+      state={{
+        systemInfo,
+        connectedMessagePages,
+        fbPages,
+        handoffConversations,
+        resolvedConversations,
+        conversationList,
+        replyAutomationDrafts,
+        pageChecks,
+        expandedItems,
+        actionState,
+        conversationStatusFilter,
+        visibleConversations,
+        selectedConversationId,
+        selectedConversation,
+        selectedConversationStatusMeta,
+        selectedConversationTimeline,
+        selectedConversationLogs,
+        isAdmin,
+        assignableUsers,
+        conversationAssigneeDraft,
+        conversationNoteDraft,
+        currentUser,
+        manualReplyDraft,
+      }}
+      actions={{
+        handleSectionChange,
+        handleSubscribeMessages,
+        handleValidatePage,
+        toggleExpandedItem,
+        handleReplyAutomationReset,
+        handleReplyAutomationSave,
+        handleReplyAutomationDraftChange,
+        setConversationStatusFilter,
+        setSelectedConversationId,
+        handleConversationStatusChange,
+        setConversationAssigneeDraft,
+        setConversationNoteDraft,
+        handleConversationMetaSave,
+        setManualReplyDraft,
+        handleManualReply,
+      }}
+      helpers={{
+        buildReplyAutomationDraft,
+        getPageTokenMeta,
+        getResolvedPageTokenKind,
+        getMessengerConnectionMeta,
+        getConversationStatusMeta,
+        formatIntentLabel,
+        getConversationFactEntries,
+        summarizeText,
+        formatDateTime,
+      }}
+      classes={{
+        FIELD_CLASS,
+        BUTTON_PRIMARY,
+        BUTTON_SECONDARY,
+        BUTTON_GHOST,
+      }}
+      refs={{
+        manualReplyPanelRef,
+        manualReplyInputRef,
+      }}
+    />
   );
 
-  const renderMessagesSection = () => (
-    <div className="space-y-6">
-      <Panel eyebrow="Thiết lập theo fanpage" title="Prompt AI cho comment và inbox">
-        <div className="grid gap-4 lg:grid-cols-3">
-          <InfoRow label="Inbox đang chờ" value={systemInfo?.pending_message_replies ?? 0} emphasis />
-          <InfoRow label="Fanpage bật inbox AI" value={systemInfo?.message_auto_reply_pages ?? 0} />
-          <InfoRow label="Webhook fanpage đã nối" value={`${connectedMessagePages}/${fbPages.length || 0}`} />
-          <InfoRow label="Cần operator xử lý" value={handoffConversations.length} emphasis={handoffConversations.length > 0} />
-          <InfoRow label="Đã xử lý" value={resolvedConversations.length} />
-          <InfoRow label="Tổng conversation" value={conversationList.length} />
-        </div>
-      </Panel>
-
-      <Panel eyebrow="Prompt theo trang" title="Bật tắt và soạn quy tắc trả lời">
-        {fbPages.length === 0 ? (
-          <EmptyState title="Chưa có fanpage" description="Thêm fanpage trước khi cấu hình AI." />
-        ) : (
-          <div className="space-y-4">
-            {fbPages.map((pageItem) => {
-              const draft = replyAutomationDrafts[pageItem.page_id] || buildReplyAutomationDraft(pageItem);
-              const validation = pageChecks[pageItem.page_id];
-              const tokenMeta = getPageTokenMeta(getResolvedPageTokenKind(pageItem, validation));
-              const messengerMeta = getMessengerConnectionMeta(validation);
-              const isExpanded = !!expandedItems[`page-ai:${pageItem.page_id}`];
-
-              return (
-                <article key={pageItem.page_id} className="rounded-[22px] border border-white/8 bg-black/10 p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div>
-                      <div className="font-display text-lg font-semibold text-white sm:text-[1.15rem]">{pageItem.page_name}</div>
-                      <div className="mt-1 text-xs text-[var(--text-muted)]">{pageItem.page_id}</div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <StatusPill tone={tokenMeta.tone}>{tokenMeta.label}</StatusPill>
-                        <StatusPill tone={messengerMeta.tone}>{messengerMeta.label}</StatusPill>
-                        <StatusPill tone={draft.comment_auto_reply_enabled ? 'emerald' : 'slate'}>
-                          Comment: {draft.comment_auto_reply_enabled ? 'Bật' : 'Tắt'}
-                        </StatusPill>
-                        <StatusPill tone={draft.message_auto_reply_enabled ? 'emerald' : 'slate'}>
-                          Inbox: {draft.message_auto_reply_enabled ? 'Bật' : 'Tắt'}
-                        </StatusPill>
-                        <StatusPill tone={draft.message_reply_schedule_enabled ? 'sky' : 'slate'}>
-                          Giờ: {draft.message_reply_schedule_enabled ? `${draft.message_reply_start_time}-${draft.message_reply_end_time}` : 'Cả ngày'}
-                        </StatusPill>
-                        <StatusPill tone={draft.message_reply_cooldown_minutes > 0 ? 'amber' : 'slate'}>
-                          Cooldown: {draft.message_reply_cooldown_minutes > 0 ? `${draft.message_reply_cooldown_minutes} phút` : 'Tắt'}
-                        </StatusPill>
-                      </div>
-                      <div className="mt-3 rounded-[20px] border border-white/8 bg-black/10 px-4 py-3 text-sm text-[var(--text-soft)]">
-                        {messengerMeta.detail}
-                      </div>
-                    </div>
-                    <div className="mobile-action-stack">
-                      <button
-                        type="button"
-                        className={BUTTON_GHOST}
-                        onClick={() => handleSubscribeMessages(pageItem.page_id)}
-                        disabled={actionState[`page-subscribe-${pageItem.page_id}`]}
-                      >
-                        <MessagesSquare className="h-4 w-4" />
-                    {actionState[`page-subscribe-${pageItem.page_id}`] ? 'Đang đăng ký...' : 'Đăng ký webhook'}
-                      </button>
-                      <button
-                        type="button"
-                        className={BUTTON_SECONDARY}
-                        onClick={() => handleValidatePage(pageItem.page_id)}
-                        disabled={actionState[`page-validate-${pageItem.page_id}`]}
-                      >
-                        <ShieldCheck className="h-4 w-4" />
-                        {actionState[`page-validate-${pageItem.page_id}`] ? 'Đang kiểm tra...' : 'Kiểm tra kết nối'}
-                      </button>
-                      <DetailToggle expanded={isExpanded} onClick={() => toggleExpandedItem(`page-ai:${pageItem.page_id}`)} />
-                    </div>
-                  </div>
-                  {isExpanded ? (
-                    <>
-                      <div className="mt-4 mobile-action-stack">
-                        <button type="button" className={BUTTON_GHOST} onClick={() => handleReplyAutomationReset(pageItem)}>
-                          Khôi phục
-                        </button>
-                        <button
-                          type="button"
-                          className={BUTTON_PRIMARY}
-                          onClick={() => handleReplyAutomationSave(pageItem.page_id)}
-                          disabled={actionState[`reply-automation-${pageItem.page_id}`]}
-                        >
-                          <Bot className="h-4 w-4" />
-                          {actionState[`reply-automation-${pageItem.page_id}`] ? 'Đang lưu...' : 'Lưu prompt AI'}
-                        </button>
-                      </div>
-                      <div className="mt-5 grid gap-4 xl:grid-cols-2">
-                        <div className="rounded-[24px] border border-white/8 bg-black/10 p-4">
-                          <label className="flex items-center justify-between gap-3 rounded-[20px] border border-white/8 bg-black/10 px-4 py-3">
-                            <div>
-                              <div className="font-medium text-white">Tự động trả lời comment</div>
-                              <div className="mt-1 text-sm text-[var(--text-soft)]">Luồng bình luận hiện có.</div>
-                            </div>
-                            <input
-                              type="checkbox"
-                              checked={draft.comment_auto_reply_enabled}
-                              onChange={(event) => handleReplyAutomationDraftChange(pageItem.page_id, 'comment_auto_reply_enabled', event.target.checked)}
-                            />
-                          </label>
-                          <div className="mt-4 text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Prompt comment</div>
-                          <textarea
-                            className={cx(FIELD_CLASS, 'mt-3 min-h-[180px] resize-y')}
-                            value={draft.comment_ai_prompt}
-                            onChange={(event) => handleReplyAutomationDraftChange(pageItem.page_id, 'comment_ai_prompt', event.target.value)}
-                            placeholder="Để trống nếu muốn dùng prompt mặc định cho comment."
-                          />
-                        </div>
-
-                        <div className="rounded-[24px] border border-white/8 bg-black/10 p-4">
-                          <label className="flex items-center justify-between gap-3 rounded-[20px] border border-white/8 bg-black/10 px-4 py-3">
-                            <div>
-                              <div className="font-medium text-white">Tự động trả lời inbox</div>
-                              <div className="mt-1 text-sm text-[var(--text-soft)]">Luồng Messenger mới.</div>
-                            </div>
-                            <input
-                              type="checkbox"
-                              checked={draft.message_auto_reply_enabled}
-                              onChange={(event) => handleReplyAutomationDraftChange(pageItem.page_id, 'message_auto_reply_enabled', event.target.checked)}
-                            />
-                          </label>
-                          <div className="mt-4 text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Prompt inbox</div>
-                          <textarea
-                            className={cx(FIELD_CLASS, 'mt-3 min-h-[180px] resize-y')}
-                            value={draft.message_ai_prompt}
-                            onChange={(event) => handleReplyAutomationDraftChange(pageItem.page_id, 'message_ai_prompt', event.target.value)}
-                            placeholder="Để trống nếu muốn dùng prompt mặc định cho inbox."
-                          />
-                          <div className="mt-4 grid gap-4 md:grid-cols-2">
-                            <label className="space-y-2">
-                              <span className="flex items-center justify-between text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">
-                                <span>Khung giờ</span>
-                                <input
-                                  type="checkbox"
-                                  checked={draft.message_reply_schedule_enabled}
-                                  onChange={(event) => handleReplyAutomationDraftChange(pageItem.page_id, 'message_reply_schedule_enabled', event.target.checked)}
-                                />
-                              </span>
-                              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                                <input
-                                  type="time"
-                                  className={FIELD_CLASS}
-                                  value={draft.message_reply_start_time}
-                                  onChange={(event) => handleReplyAutomationDraftChange(pageItem.page_id, 'message_reply_start_time', event.target.value)}
-                                  disabled={!draft.message_reply_schedule_enabled}
-                                />
-                                <input
-                                  type="time"
-                                  className={FIELD_CLASS}
-                                  value={draft.message_reply_end_time}
-                                  onChange={(event) => handleReplyAutomationDraftChange(pageItem.page_id, 'message_reply_end_time', event.target.value)}
-                                  disabled={!draft.message_reply_schedule_enabled}
-                                />
-                              </div>
-                            </label>
-                            <label className="space-y-2">
-                              <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Cooldown cùng người gửi</span>
-                              <input
-                                type="number"
-                                min="0"
-                                max="1440"
-                                className={FIELD_CLASS}
-                                value={draft.message_reply_cooldown_minutes}
-                                onChange={(event) => handleReplyAutomationDraftChange(pageItem.page_id, 'message_reply_cooldown_minutes', parseInt(event.target.value, 10) || 0)}
-                              />
-                              <div className="text-sm text-[var(--text-soft)]">Tính theo phút, giờ Việt Nam.</div>
-                            </label>
-                          </div>
-                        </div>
-                      </div>
-                    </>
-                  ) : null}
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </Panel>
-
-      <Panel
-        eyebrow="Hộp thư operator"
-        title="Quản lý hội thoại theo conversation"
-        action={(
-          <div className="flex flex-wrap gap-2">
-            {[
-              { value: 'all', label: `Tất cả (${conversationList.length})` },
-              { value: 'operator_active', label: `Cần operator (${handoffConversations.length})` },
-              { value: 'ai_active', label: `AI đang xử lý (${conversationList.filter((conversation) => conversation.status === 'ai_active').length})` },
-              { value: 'resolved', label: `Đã xử lý (${resolvedConversations.length})` },
-            ].map((filterItem) => (
-              <button
-                key={filterItem.value}
-                type="button"
-                onClick={() => setConversationStatusFilter(filterItem.value)}
-                className={cx(
-                  BUTTON_GHOST,
-                  conversationStatusFilter === filterItem.value ? 'border-cyan-400/20 bg-cyan-400/10 text-cyan-100' : '',
-                )}
-              >
-                {filterItem.label}
-              </button>
-            ))}
-          </div>
-        )}
-      >
-        <div className="grid gap-5 2xl:grid-cols-[0.92fr_1.28fr]">
-          <div className="space-y-4">
-            {visibleConversations.length === 0 ? (
-              <EmptyState title="Chưa có conversation phù hợp" description="Tin nhắn inbox sẽ được gom theo conversation và hiện tại đây." />
-            ) : (
-              visibleConversations.map((conversation) => {
-                const targetPage = fbPages.find((pageItem) => pageItem.page_id === conversation.page_id);
-                const statusMeta = getConversationStatusMeta(conversation.status);
-                const isSelected = selectedConversationId === conversation.id;
-                return (
-                  <button
-                    key={conversation.id}
-                    type="button"
-                    onClick={() => setSelectedConversationId(conversation.id)}
-                    className={cx(
-                      'w-full rounded-[22px] border p-4 text-left transition',
-                      isSelected
-                        ? 'border-cyan-400/25 bg-cyan-400/10'
-                        : 'border-white/8 bg-black/10 hover:border-white/15 hover:bg-black/15',
-                    )}
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <div className="font-medium text-white">{targetPage?.page_name || conversation.page_id}</div>
-                        <div className="mt-1 text-xs text-[var(--text-muted)]">Người gửi: {conversation.sender_id}</div>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <StatusPill tone={statusMeta.tone}>{statusMeta.label}</StatusPill>
-                        {conversation.current_intent ? <StatusPill tone="amber">{formatIntentLabel(conversation.current_intent)}</StatusPill> : null}
-                      </div>
-                    </div>
-                    <div className="mt-3 text-sm leading-6 text-[var(--text-soft)]">
-                      {summarizeText(conversation.latest_preview, 'Chưa có nội dung.')}
-                    </div>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                      <InfoRow label="Lượt chat" value={conversation.message_count ?? 0} />
-                      <InfoRow label="Cập nhật cuối" value={formatDateTime(conversation.latest_activity_at)} />
-                      <InfoRow label="Người xử lý" value={conversation.assigned_user?.display_name || 'Chưa gán'} />
-                      <InfoRow label="Nguồn preview" value={conversation.latest_preview_direction === 'page' ? 'Trang' : 'Khách'} />
-                    </div>
-                  </button>
-                );
-              })
-            )}
-          </div>
-
-          <div>
-            {!selectedConversation ? (
-              <EmptyState title="Chọn một cuộc trò chuyện" description="Danh sách bên trái đã được gom theo conversation để operator xử lý gọn hơn." />
-            ) : (
-              <div className="space-y-4">
-                <div ref={manualReplyPanelRef} className="rounded-[24px] border border-white/8 bg-black/10 p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div>
-                      <div className="font-display text-xl font-semibold text-white">
-                        {fbPages.find((pageItem) => pageItem.page_id === selectedConversation.page_id)?.page_name || selectedConversation.page_id}
-                      </div>
-                      <div className="mt-1 text-sm text-[var(--text-muted)]">Người gửi: {selectedConversation.sender_id}</div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <StatusPill tone={selectedConversationStatusMeta.tone}>{selectedConversationStatusMeta.label}</StatusPill>
-                        {selectedConversation.current_intent ? <StatusPill tone="amber">{formatIntentLabel(selectedConversation.current_intent)}</StatusPill> : null}
-                        {selectedConversation.assigned_user ? <StatusPill tone="slate">Người xử lý: {selectedConversation.assigned_user.display_name}</StatusPill> : null}
-                      </div>
-                    </div>
-                    <div className="mobile-action-stack">
-                      {selectedConversation.facebook_thread_url ? (
-                        <a href={selectedConversation.facebook_thread_url} target="_blank" rel="noreferrer" className={BUTTON_GHOST}>
-                          <ExternalLink className="h-4 w-4" />
-                          Mở trên Facebook
-                        </a>
-                      ) : null}
-                      {selectedConversation.status === 'operator_active' ? (
-                        <>
-                          <button
-                            type="button"
-                            className={BUTTON_SECONDARY}
-                            onClick={() => handleConversationStatusChange(selectedConversation.id, 'resolved')}
-                            disabled={actionState[`conversation-status-resolved-${selectedConversation.id}`]}
-                          >
-                            <CircleCheck className="h-4 w-4" />
-                            {actionState[`conversation-status-resolved-${selectedConversation.id}`] ? 'Đang cập nhật...' : 'Đánh dấu đã xử lý'}
-                          </button>
-                          <button
-                            type="button"
-                            className={BUTTON_GHOST}
-                            onClick={() => handleConversationStatusChange(selectedConversation.id, 'ai_active')}
-                            disabled={actionState[`conversation-status-ai_active-${selectedConversation.id}`]}
-                          >
-                            <RefreshCw className="h-4 w-4" />
-                            {actionState[`conversation-status-ai_active-${selectedConversation.id}`] ? 'Đang cập nhật...' : 'Bật lại AI'}
-                          </button>
-                        </>
-                      ) : selectedConversation.status === 'resolved' ? (
-                        <>
-                          <button
-                            type="button"
-                            className={cx(BUTTON_GHOST, 'border-rose-400/20 bg-rose-400/10 text-rose-100 hover:border-rose-300/30 hover:bg-rose-400/15')}
-                            onClick={() => handleConversationStatusChange(selectedConversation.id, 'operator_active', 'Đã mở lại để operator hỗ trợ tiếp.')}
-                            disabled={actionState[`conversation-status-operator_active-${selectedConversation.id}`]}
-                          >
-                            <AlertTriangle className="h-4 w-4" />
-                            {actionState[`conversation-status-operator_active-${selectedConversation.id}`] ? 'Đang cập nhật...' : 'Mở lại cho operator'}
-                          </button>
-                          <button
-                            type="button"
-                            className={BUTTON_GHOST}
-                            onClick={() => handleConversationStatusChange(selectedConversation.id, 'ai_active')}
-                            disabled={actionState[`conversation-status-ai_active-${selectedConversation.id}`]}
-                          >
-                            <RefreshCw className="h-4 w-4" />
-                            {actionState[`conversation-status-ai_active-${selectedConversation.id}`] ? 'Đang cập nhật...' : 'Bật lại AI'}
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          type="button"
-                          className={cx(BUTTON_GHOST, 'border-rose-400/20 bg-rose-400/10 text-rose-100 hover:border-rose-300/30 hover:bg-rose-400/15')}
-                          onClick={() => handleConversationStatusChange(selectedConversation.id, 'operator_active', 'Đã chuyển cho nhân viên tư vấn hỗ trợ tiếp.')}
-                          disabled={actionState[`conversation-status-operator_active-${selectedConversation.id}`]}
-                        >
-                          <AlertTriangle className="h-4 w-4" />
-                          {actionState[`conversation-status-operator_active-${selectedConversation.id}`] ? 'Đang cập nhật...' : 'Chuyển operator'}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                    <InfoRow label="Tin khách cuối" value={formatDateTime(selectedConversation.last_customer_message_at)} />
-                    <InfoRow label="AI phản hồi cuối" value={formatDateTime(selectedConversation.last_ai_reply_at)} />
-                    <InfoRow label="Operator phản hồi cuối" value={formatDateTime(selectedConversation.last_operator_reply_at)} />
-                    <InfoRow label="Đóng case lúc" value={formatDateTime(selectedConversation.resolved_at)} />
-                  </div>
-                </div>
-
-                <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
-                  <div className="rounded-[24px] border border-white/8 bg-black/10 p-4">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Memory hội thoại</div>
-                      {selectedConversation.status === 'operator_active' ? <StatusPill tone="rose" icon={AlertTriangle}>Đang cần người thật</StatusPill> : null}
-                    </div>
-                    <div className="mt-3 text-sm leading-7 text-white">{selectedConversation.conversation_summary || 'Chưa có tóm tắt hội thoại.'}</div>
-                    {selectedConversation.handoff_reason ? (
-                      <div className="mt-4 rounded-[20px] border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm leading-7 text-rose-100">
-                        {selectedConversation.handoff_reason}
-                      </div>
-                    ) : null}
-                  </div>
-                  <div className="rounded-[24px] border border-white/8 bg-black/10 p-4">
-                    <div className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Intent và dữ kiện nhớ</div>
-                    <div className="mt-3 space-y-3">
-                      <InfoRow label="Intent hiện tại" value={formatIntentLabel(selectedConversation.current_intent)} emphasis />
-                      <InfoRow label="Người xử lý" value={selectedConversation.assigned_user?.display_name || 'Chưa gán'} />
-                    </div>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {getConversationFactEntries(selectedConversation).length > 0
-                        ? getConversationFactEntries(selectedConversation).map(([key, value]) => (
-                          <StatusPill key={`${selectedConversation.id}-${key}`} tone="slate">{`${formatIntentLabel(key)}: ${value}`}</StatusPill>
-                        ))
-                        : <StatusPill tone="slate">Chưa có facts</StatusPill>}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid gap-4 xl:grid-cols-[0.8fr_1.2fr]">
-                  <div className="rounded-[24px] border border-white/8 bg-black/10 p-4">
-                    <div className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Điều phối operator</div>
-                    <div className="mt-4 space-y-4">
-                      {isAdmin ? (
-                        <label className="block space-y-2">
-                          <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Giao cho</span>
-                          <select className={FIELD_CLASS} value={conversationAssigneeDraft} onChange={(event) => setConversationAssigneeDraft(event.target.value)}>
-                            <option value="">Chưa gán người xử lý</option>
-                            {assignableUsers.map((user) => (
-                              <option key={user.id} value={user.id}>
-                                {(user.display_name || user.username)} • {user.role}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      ) : (
-                        <button type="button" className={BUTTON_GHOST} onClick={() => setConversationAssigneeDraft(currentUser?.id || '')}>
-                          <UserPlus className="h-4 w-4" />
-                          Nhận xử lý cho mình
-                        </button>
-                      )}
-                      <label className="block space-y-2">
-                        <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Ghi chú nội bộ</span>
-                        <textarea
-                          className={cx(FIELD_CLASS, 'min-h-[140px] resize-y')}
-                          value={conversationNoteDraft}
-                          onChange={(event) => setConversationNoteDraft(event.target.value)}
-                          placeholder="Ghi chú nội bộ cho operator, không gửi cho khách."
-                        />
-                      </label>
-                      <button
-                        type="button"
-                        className={BUTTON_SECONDARY}
-                        onClick={handleConversationMetaSave}
-                        disabled={actionState[`conversation-meta-${selectedConversation.id}`]}
-                      >
-                        <CircleCheck className="h-4 w-4" />
-                        {actionState[`conversation-meta-${selectedConversation.id}`] ? 'Đang lưu...' : 'Lưu phân công và ghi chú'}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="rounded-[24px] border border-white/8 bg-black/10 p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Timeline cuộc trò chuyện</div>
-                      <StatusPill tone="slate">{selectedConversationLogs.length} bản ghi</StatusPill>
-                    </div>
-                    {selectedConversationTimeline.length === 0 ? (
-                      <div className="mt-4">
-                        <EmptyState title="Chưa có timeline" description="Lịch sử chat sẽ hiện ở đây khi có tin nhắn hoặc phản hồi." />
-                      </div>
-                    ) : (
-                      <div className="mt-4 space-y-3">
-                        {selectedConversationTimeline.map((event) => (
-                          <div
-                            key={event.id}
-                            className={cx(
-                              'rounded-[22px] border px-4 py-3',
-                              event.type === 'customer'
-                                ? 'border-white/8 bg-black/10'
-                                : event.type === 'operator'
-                                  ? 'border-amber-400/20 bg-amber-400/10'
-                                  : 'border-cyan-400/20 bg-cyan-400/10',
-                            )}
-                          >
-                            <div className="flex flex-wrap items-center justify-between gap-3">
-                              <div className="font-medium text-white">{event.sourceLabel}</div>
-                              <StatusPill tone="slate" icon={Clock}>{formatDateTime(event.time)}</StatusPill>
-                            </div>
-                            <div className="mt-3 whitespace-pre-wrap text-sm leading-7 text-white">{event.text}</div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="rounded-[24px] border border-white/8 bg-black/10 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <div className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Phản hồi thủ công</div>
-                      <div className="mt-2 text-sm text-[var(--text-soft)]">
-                        {selectedConversation.status === 'ai_active'
-                          ? 'AI đang xử lý cuộc chat này. Nếu cần can thiệp tay, hãy chuyển operator trước.'
-                          : 'Nhập nội dung để operator phản hồi trực tiếp từ dashboard.'}
-                      </div>
-                    </div>
-                    {selectedConversation.status !== 'ai_active' ? <StatusPill tone="rose">AI đang tạm dừng cho case này</StatusPill> : null}
-                  </div>
-                  <div className="mt-4 space-y-4">
-                    <textarea
-                      ref={manualReplyInputRef}
-                      className={cx(FIELD_CLASS, 'min-h-[140px] resize-y')}
-                      value={manualReplyDraft}
-                      onChange={(event) => setManualReplyDraft(event.target.value)}
-                      placeholder={selectedConversation.status === 'ai_active' ? 'Chuyển operator để phản hồi tay.' : 'Nhập phản hồi gửi cho khách hàng.'}
-                      disabled={selectedConversation.status === 'ai_active'}
-                    />
-                    <div className="mobile-action-stack">
-                      <button
-                        type="button"
-                        className={BUTTON_PRIMARY}
-                        onClick={() => handleManualReply(false)}
-                        disabled={selectedConversation.status === 'ai_active' || actionState[`conversation-reply-${selectedConversation.id}`]}
-                      >
-                        <MessagesSquare className="h-4 w-4" />
-                        {actionState[`conversation-reply-${selectedConversation.id}`] ? 'Đang gửi...' : 'Gửi phản hồi'}
-                      </button>
-                      <button
-                        type="button"
-                        className={BUTTON_SECONDARY}
-                        onClick={() => handleManualReply(true)}
-                        disabled={selectedConversation.status === 'ai_active' || actionState[`conversation-reply-${selectedConversation.id}`]}
-                      >
-                        <CircleCheck className="h-4 w-4" />
-                        {actionState[`conversation-reply-${selectedConversation.id}`] ? 'Đang gửi...' : 'Gửi và đánh dấu đã xử lý'}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </Panel>
-
-    </div>
+  const renderSettingsSection = () => (
+    <SettingsSection
+      state={{
+        isAdmin,
+        isRefreshing,
+        pagesNeedingAttention,
+        fbPages,
+        connectedMessagePages,
+        runtimeDerived,
+        runtimeOverrideCount,
+        runtimeForm,
+        runtimeSettings,
+        runtimeConfig,
+        discoveredFbPages,
+        selectedDiscoveredPageIds,
+        allDiscoveredSelected,
+        discoverySubject,
+        fbImportToken,
+        fbForm,
+        actionState,
+        pageChecks,
+        systemInfo,
+      }}
+      actions={{
+        fetchDashboard,
+        handleCopy,
+        handleDiscoverFacebookPages,
+        setFbImportToken,
+        handleRefreshFacebookPages,
+        handleToggleAllDiscoveredPages,
+        handleFbSubmit,
+        setFbForm,
+        handleImportFacebookPages,
+        handleToggleDiscoveredPage,
+        setDiscoveredFbPages,
+        setSelectedDiscoveredPageIds,
+        setDiscoverySubject,
+        handleSubscribeMessages,
+        handleValidatePage,
+        handleDeleteFacebookPage,
+        handleRuntimeConfigSave,
+        handleRuntimeFieldChange,
+        setRuntimeForm,
+      }}
+      helpers={{
+        getPageTokenMeta,
+        getResolvedPageTokenKind,
+        getMessengerConnectionMeta,
+        formatDateTime,
+        extractRuntimeForm,
+      }}
+      classes={{
+        FIELD_CLASS,
+        BUTTON_PRIMARY,
+        BUTTON_SECONDARY,
+        BUTTON_GHOST,
+      }}
+    />
   );
 
   const renderOperationsSection = () => (
-    <div className="grid gap-6 2xl:grid-cols-12">
-      <Panel className="2xl:col-span-4" eyebrow="Health" title="Sức khỏe hệ thống">
-        <div className="space-y-3">
-          <InfoRow label="Database" value={healthInfo?.database?.ok ? 'Kết nối ổn' : 'Có lỗi'} emphasis />
-          <InfoRow label="Worker trực tuyến" value={onlineWorkers} />
-          <InfoRow label="Worker stale" value={staleWorkers.length} />
-          <InfoRow label="Task queue poll" value={`${healthInfo?.config?.task_queue_poll_seconds ?? 0} giây`} />
-          <InfoRow label="Xác minh chữ ký webhook" value={healthInfo?.config?.webhook_signature_enabled ? 'Đang bật' : 'Chưa bật'} />
-          <InfoRow label="Chế độ nền" value={healthInfo?.worker?.expected_mode || 'Chưa có'} />
-        </div>
-      </Panel>
-
-      <Panel className="2xl:col-span-4" eyebrow="Worker" title="Theo dõi tiến trình nền" action={isAdmin ? <button type="button" className={BUTTON_GHOST} onClick={handleCleanupWorkers} disabled={actionState['cleanup-workers'] || staleWorkers.length === 0}><Trash2 className="h-4 w-4" />{actionState['cleanup-workers'] ? 'Đang dọn...' : 'Dọn worker cũ'}</button> : null}>
-        <div className="space-y-3">
-          {workers.length === 0 ? (
-            <EmptyState title="Chưa ghi nhận worker" description="Worker sẽ hiện tại đây." />
-          ) : (
-            workers.map((worker) => (
-              <div key={worker.worker_name} className="rounded-[24px] border border-white/8 bg-black/10 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="font-medium text-white">{worker.worker_name}</div>
-                    <div className="mt-1 text-xs text-[var(--text-muted)]">{worker.hostname || 'Không có hostname'}</div>
-                  </div>
-                  <span className={cx('inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium', getStatusClasses(worker.is_online ? 'posted' : 'failed'))}>
-                    <StatusIcon status={worker.is_online ? 'posted' : 'failed'} />
-                    {worker.is_online ? 'Trực tuyến' : 'Mất kết nối'}
-                  </span>
-                </div>
-                <div className="mt-4 grid gap-3">
-                  <InfoRow label="Trạng thái" value={worker.status} />
-                  <InfoRow label="Lần cuối heartbeat" value={formatDateTime(worker.last_seen_at)} />
-                  {worker.current_task_type ? <InfoRow label="Đang làm" value={worker.current_task_type} /> : null}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </Panel>
-
-      <Panel className="2xl:col-span-4" eyebrow="Queue summary" title="Nhịp hàng đợi nền">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <InfoRow label="Queued" value={taskSummary.queued ?? 0} emphasis />
-          <InfoRow label="Processing" value={taskSummary.processing ?? 0} />
-          <InfoRow label="Completed" value={taskSummary.completed ?? 0} />
-          <InfoRow label="Failed" value={taskSummary.failed ?? 0} />
-        </div>
-      </Panel>
-
-      <Panel className="2xl:col-span-6" eyebrow="Task queue" title="Tác vụ gần nhất" action={<div className="rounded-[22px] border border-white/8 bg-black/10 px-4 py-3 text-sm text-[var(--text-soft)]">Trang {taskPage} / {totalTaskPages}</div>}>
-        <div className="space-y-3">
-          {tasks.length === 0 ? <EmptyState title="Chưa có tác vụ nền" description="Tác vụ sẽ hiện tại đây." /> : pagedTasks.map((task) => (
-            <div key={task.id} className="rounded-[24px] border border-white/8 bg-black/10 p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="font-medium text-white">{task.task_type}</div>
-                  <div className="mt-1 text-xs text-[var(--text-muted)]">{task.entity_type || 'khác'}: {task.entity_id || 'n/a'}</div>
-                </div>
-                <span className={cx('inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium', getStatusClasses(task.status))}>
-                  <StatusIcon status={task.status} />
-                  {getStatusLabel(task.status)}
-                </span>
-              </div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <InfoRow label="Số lần chạy" value={`${task.attempts}/${task.max_attempts}`} />
-                <InfoRow label="Ưu tiên" value={task.priority} />
-                <InfoRow label="Tạo lúc" value={formatDateTime(task.created_at)} />
-                <InfoRow label="Worker nhận" value={task.locked_by || 'Chưa nhận'} />
-              </div>
-              {task.last_error ? <div className="mt-4 rounded-[20px] border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm leading-7 text-rose-100">{task.last_error}</div> : null}
-            </div>
-          ))}
-        </div>
-        {tasks.length > TASK_PAGE_SIZE ? (
-          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/8 pt-5">
-            <div className="text-sm text-[var(--text-soft)]">
-              Hiển thị {pagedTasks.length} / {tasks.length} tác vụ gần nhất.
-            </div>
-            <div className="flex gap-2">
-              <button type="button" disabled={taskPage <= 1} onClick={() => setTaskPage((current) => Math.max(1, current - 1))} className={BUTTON_GHOST}>
-                Trước
-              </button>
-              <button type="button" disabled={taskPage >= totalTaskPages} onClick={() => setTaskPage((current) => Math.min(totalTaskPages, current + 1))} className={BUTTON_GHOST}>
-                Sau
-              </button>
-            </div>
-          </div>
-        ) : null}
-      </Panel>
-
-      <Panel className="2xl:col-span-6" eyebrow="System events" title="Nhật ký hệ thống" action={<div className="rounded-[22px] border border-white/8 bg-black/10 px-4 py-3 text-sm text-[var(--text-soft)]">Trang {eventPage} / {totalEventPages}</div>}>
-        <div className="space-y-3">
-          {events.length === 0 ? <EmptyState title="Chưa có sự kiện" description="Sự kiện sẽ hiện tại đây." /> : pagedEvents.map((event) => (
-            <div key={event.id} className="rounded-[24px] border border-white/8 bg-black/10 p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="font-medium text-white">{event.message}</div>
-                  <div className="mt-1 text-xs text-[var(--text-muted)]">{event.scope} • {event.level}</div>
-                </div>
-                <StatusPill tone={event.level === 'ERROR' ? 'rose' : event.level === 'WARNING' ? 'amber' : 'emerald'}>{event.level}</StatusPill>
-              </div>
-              <div className="mt-3 text-sm text-[var(--text-soft)]">{formatDateTime(event.created_at)}</div>
-              {event.details && Object.keys(event.details).length > 0 ? <pre className="mt-4 overflow-x-auto rounded-[20px] border border-white/8 bg-black/20 px-4 py-3 text-xs text-[var(--text-soft)]">{JSON.stringify(event.details, null, 2)}</pre> : null}
-            </div>
-          ))}
-        </div>
-        {events.length > SYSTEM_EVENT_PAGE_SIZE ? (
-          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/8 pt-5">
-            <div className="text-sm text-[var(--text-soft)]">
-              Hiển thị {pagedEvents.length} / {events.length} sự kiện gần nhất.
-            </div>
-            <div className="flex gap-2">
-              <button type="button" disabled={eventPage <= 1} onClick={() => setEventPage((current) => Math.max(1, current - 1))} className={BUTTON_GHOST}>
-                Trước
-              </button>
-              <button type="button" disabled={eventPage >= totalEventPages} onClick={() => setEventPage((current) => Math.min(totalEventPages, current + 1))} className={BUTTON_GHOST}>
-                Sau
-              </button>
-            </div>
-          </div>
-        ) : null}
-      </Panel>
-    </div>
+    <OperationsSection
+      state={{
+        healthInfo,
+        onlineWorkers,
+        staleWorkers,
+        isAdmin,
+        actionState,
+        workers,
+        workerPage,
+        totalWorkerPages,
+        pagedWorkers,
+        taskSummary,
+        taskPage,
+        totalTaskPages,
+        tasks,
+        pagedTasks,
+        eventPage,
+        totalEventPages,
+        events,
+        pagedEvents,
+      }}
+      actions={{
+        handleCleanupWorkers,
+        setWorkerPage,
+        setTaskPage,
+        setEventPage,
+      }}
+      helpers={{
+        getStatusClasses,
+        getStatusLabel,
+        formatDateTime,
+      }}
+      classes={{
+        BUTTON_GHOST,
+      }}
+    />
   );
 
   const renderSecuritySection = () => (
-    <div className="grid gap-6 2xl:grid-cols-12">
-      <Panel className="2xl:col-span-4" eyebrow="Phiên hiện tại" title="Tài khoản đang dùng">
-        <div className="space-y-3">
-          <InfoRow label="Tên đăng nhập" value={currentUser?.username || 'Chưa có'} emphasis />
-          <InfoRow label="Tên hiển thị" value={currentUser?.display_name || 'Chưa đặt'} />
-          <InfoRow label="Vai trò" value={currentUser?.role === 'admin' ? 'Quản trị viên' : 'Vận hành'} />
-          <InfoRow label="Hết hạn phiên" value={formatDateTime(sessionExpiresAt)} />
-        </div>
-        <div className="mt-5 flex flex-wrap gap-2">
-          <StatusPill tone={currentUser?.must_change_password ? 'amber' : 'emerald'} icon={ShieldCheck}>{currentUser?.must_change_password ? 'Cần đổi mật khẩu' : 'Đã an toàn'}</StatusPill>
-          <button type="button" className={BUTTON_GHOST} onClick={handleLogout}><LogOut className="h-4 w-4" />Đăng xuất</button>
-        </div>
-      </Panel>
-
-      <Panel className="2xl:col-span-4" eyebrow="Đổi mật khẩu" title="Cập nhật thông tin đăng nhập">
-        <form onSubmit={handleChangePassword} className="space-y-4">
-          <label className="block space-y-2">
-            <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Mật khẩu hiện tại</span>
-            <input type="password" required className={FIELD_CLASS} value={passwordForm.current_password} onChange={(event) => setPasswordForm((current) => ({ ...current, current_password: event.target.value }))} />
-          </label>
-          <label className="block space-y-2">
-            <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Mật khẩu mới</span>
-            <input type="password" required className={FIELD_CLASS} value={passwordForm.new_password} onChange={(event) => setPasswordForm((current) => ({ ...current, new_password: event.target.value }))} />
-          </label>
-          <button type="submit" disabled={actionState['change-password']} className={cx(BUTTON_PRIMARY, 'w-full')}>
-            <ShieldCheck className="h-4 w-4" />
-            {actionState['change-password'] ? 'Đang cập nhật...' : 'Đổi mật khẩu'}
-          </button>
-        </form>
-      </Panel>
-
-      <Panel className="2xl:col-span-4" eyebrow="Quy tắc" title="Nhắc nhở bảo mật">
-        <div className="space-y-3">
-          <div className="rounded-[24px] border border-white/8 bg-black/10 px-4 py-4 text-sm leading-7 text-[var(--text-soft)]">Đổi mật khẩu mặc định sau lần vào đầu.</div>
-          <div className="rounded-[24px] border border-white/8 bg-black/10 px-4 py-4 text-sm leading-7 text-[var(--text-soft)]">Chỉ admin được quản lý tài khoản.</div>
-          <div className="rounded-[24px] border border-white/8 bg-black/10 px-4 py-4 text-sm leading-7 text-[var(--text-soft)]">Reset sẽ tạo mật khẩu tạm.</div>
-        </div>
-      </Panel>
-
-      <Panel className="2xl:col-span-12" eyebrow="Quản lý người dùng" title="Tài khoản vận hành trong hệ thống">
-        {!isAdmin ? (
-          <EmptyState title="Tài khoản hiện tại không có quyền quản trị" description="Cần quyền quản trị." />
-        ) : (
-          <div className="space-y-5">
-            <form onSubmit={handleCreateUser} className="grid gap-4 lg:grid-cols-4">
-              <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Tên đăng nhập</span>
-                <input type="text" required className={FIELD_CLASS} value={userForm.username} onChange={(event) => setUserForm((current) => ({ ...current, username: event.target.value }))} />
-              </label>
-              <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Tên hiển thị</span>
-                <input type="text" className={FIELD_CLASS} value={userForm.display_name} onChange={(event) => setUserForm((current) => ({ ...current, display_name: event.target.value }))} />
-              </label>
-              <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Mật khẩu ban đầu</span>
-                <input type="password" required className={FIELD_CLASS} value={userForm.password} onChange={(event) => setUserForm((current) => ({ ...current, password: event.target.value }))} />
-              </label>
-              <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Vai trò</span>
-                <select className={FIELD_CLASS} value={userForm.role} onChange={(event) => setUserForm((current) => ({ ...current, role: event.target.value }))}>
-                  <option value="operator" style={{ color: '#06101a' }}>Vận hành</option>
-                  <option value="admin" style={{ color: '#06101a' }}>Quản trị viên</option>
-                </select>
-              </label>
-              <div className="lg:col-span-4 flex justify-end">
-                <button type="submit" disabled={actionState['create-user']} className={BUTTON_PRIMARY}>
-                  <UserPlus className="h-4 w-4" />
-                  {actionState['create-user'] ? 'Đang tạo...' : 'Tạo tài khoản mới'}
-                </button>
-              </div>
-            </form>
-            {users.length === 0 ? <EmptyState title="Chưa có thêm tài khoản" description="Tạo tài khoản để bắt đầu." /> : (
-              <div className="grid gap-4 xl:grid-cols-2">
-                {users.map((user) => (
-                  <article key={user.id} className="rounded-[22px] border border-white/8 bg-black/10 p-4">
-                    <div className="flex flex-wrap items-start justify-between gap-4">
-                      <div>
-                        <div className="font-medium text-white">{user.display_name || user.username}</div>
-                        <div className="mt-1 text-xs text-[var(--text-muted)]">@{user.username}</div>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <StatusPill tone={user.role === 'admin' ? 'emerald' : 'sky'}>{user.role === 'admin' ? 'Quản trị viên' : 'Vận hành'}</StatusPill>
-                          <StatusPill tone={user.is_active ? 'emerald' : 'rose'}>{user.is_active ? 'Đang hoạt động' : 'Đã khóa'}</StatusPill>
-                          {user.must_change_password ? <StatusPill tone="amber">Buộc đổi mật khẩu</StatusPill> : null}
-                        </div>
-                      </div>
-                      <div className="rounded-[22px] border border-white/8 bg-black/10 px-4 py-3 text-right">
-                        <div className="text-[10px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Lần đăng nhập gần nhất</div>
-                        <div className="mt-2 text-sm text-white">{formatDateTime(user.last_login_at)}</div>
-                      </div>
-                    </div>
-                    <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                      <select className={FIELD_CLASS} value={user.role} onChange={(event) => handleUserUpdate(user.id, { role: event.target.value })} disabled={actionState[`user-update-${user.id}`]}>
-                        <option value="operator" style={{ color: '#06101a' }}>Vận hành</option>
-                        <option value="admin" style={{ color: '#06101a' }}>Quản trị viên</option>
-                      </select>
-                      <button type="button" className={BUTTON_GHOST} onClick={() => handleUserUpdate(user.id, { is_active: !user.is_active })} disabled={actionState[`user-update-${user.id}`]}>
-                        {user.is_active ? 'Khóa tài khoản' : 'Mở khóa tài khoản'}
-                      </button>
-                    </div>
-                    <div className="mobile-action-stack mt-3">
-                      <button type="button" className={BUTTON_SECONDARY} onClick={() => handleResetUserPassword(user.id)} disabled={actionState[`user-reset-${user.id}`]}>
-                        <RefreshCw className="h-4 w-4" />
-                        {actionState[`user-reset-${user.id}`] ? 'Đang đặt lại...' : 'Đặt lại mật khẩu'}
-                      </button>
-                      <button
-                        type="button"
-                        className={cx(BUTTON_GHOST, 'border-rose-400/20 bg-rose-400/10 text-rose-100 hover:border-rose-400/30 hover:bg-rose-400/15')}
-                        onClick={() => handleDeleteUser(user.id, user.username)}
-                        disabled={actionState[`user-delete-${user.id}`] || currentUser?.id === user.id}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        {actionState[`user-delete-${user.id}`] ? 'Đang xóa...' : 'Xóa vĩnh viễn'}
-                      </button>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </Panel>
-    </div>
+    <SecuritySection
+      state={{
+        currentUser,
+        sessionExpiresAt,
+        passwordForm,
+        actionState,
+        isAdmin,
+        userForm,
+        users,
+      }}
+      actions={{
+        handleLogout,
+        handleChangePassword,
+        setPasswordForm,
+        handleCreateUser,
+        setUserForm,
+        handleUserUpdate,
+        handleResetUserPassword,
+        handleDeleteUser,
+      }}
+      helpers={{
+        formatDateTime,
+      }}
+      classes={{
+        FIELD_CLASS,
+        BUTTON_PRIMARY,
+        BUTTON_SECONDARY,
+        BUTTON_GHOST,
+      }}
+    />
   );
 
   const renderActiveSection = () => {
@@ -3290,6 +1794,7 @@ function App() {
       case 'queue': return renderQueueSection();
       case 'engagement': return renderEngagementSection();
       case 'messages': return renderMessagesSection();
+      case 'settings': return renderSettingsSection();
       case 'operations': return renderOperationsSection();
       case 'security': return renderSecuritySection();
       case 'overview':
@@ -3298,33 +1803,24 @@ function App() {
   };
 
   const renderMobileQuickPanel = () => (
-    <Panel className="xl:hidden" eyebrow="Tóm tắt nhanh" title="Điểm cần nhìn ngay">
-      <div className="space-y-4">
-        <div className="grid gap-3">
-          <InfoRow label="Đến lượt kế tiếp" value={formatRelTime(stats.next_publish)} emphasis />
-          <InfoRow label="Cuối hàng chờ" value={formatDateTime(stats.queue_end)} />
-          <InfoRow label="Worker trực tuyến" value={onlineWorkers} />
-        </div>
-        <div className="grid gap-3">
-          <button type="button" onClick={() => handleSectionChange('campaigns')} className="rounded-[22px] border border-white/8 bg-black/10 px-4 py-4 text-left transition hover:border-cyan-400/20 hover:bg-cyan-400/6">
-            <div className="text-[11px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Chiến dịch</div>
-            <div className="mt-2 font-medium text-white">
-              {focusCampaigns.length ? `${focusCampaigns.length} chiến dịch cần xem ngay` : 'Không có chiến dịch nóng'}
-            </div>
-          </button>
-          <button type="button" onClick={() => handleSectionChange('messages')} className="rounded-[22px] border border-white/8 bg-black/10 px-4 py-4 text-left transition hover:border-cyan-400/20 hover:bg-cyan-400/6">
-            <div className="text-[11px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Webhook fanpage</div>
-            <div className="mt-2 font-medium text-white">{connectedMessagePages}/{fbPages.length || 0} trang đã nối đủ feed và messages</div>
-          </button>
-          <button type="button" onClick={() => handleSectionChange('operations')} className="rounded-[22px] border border-white/8 bg-black/10 px-4 py-4 text-left transition hover:border-cyan-400/20 hover:bg-cyan-400/6">
-            <div className="text-[11px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Vận hành</div>
-            <div className="mt-2 font-medium text-white">
-              {staleWorkers.length ? `${staleWorkers.length} worker cần dọn` : 'Không có worker stale'}
-            </div>
-          </button>
-        </div>
-      </div>
-    </Panel>
+    <MobileQuickPanel
+      state={{
+        stats,
+        onlineWorkers,
+        focusCampaigns,
+        pagesNeedingAttention,
+        connectedMessagePages,
+        fbPages,
+        staleWorkers,
+      }}
+      actions={{
+        handleSectionChange,
+      }}
+      helpers={{
+        formatRelTime,
+        formatDateTime,
+      }}
+    />
   );
 
   const metricCards = [
@@ -3357,47 +1853,52 @@ function App() {
   const visibleMetricCards = showAllMetrics ? metricCards : metricCards.slice(0, 4);
 
   if (!token) {
-    return <LoginScreen loginUser={loginUser} setLoginUser={setLoginUser} loginPass={loginPass} setLoginPass={setLoginPass} loginError={loginError} handleLogin={handleLogin} />;
+    return (
+      <LoginScreen
+        loginUser={loginUser}
+        setLoginUser={setLoginUser}
+        loginPass={loginPass}
+        setLoginPass={setLoginPass}
+        loginError={loginError}
+        handleLogin={handleLogin}
+        classes={{
+          FIELD_CLASS,
+          BUTTON_PRIMARY,
+        }}
+      />
+    );
   }
 
   return (
-    <div className="relative min-h-screen overflow-x-hidden bg-[var(--shell-bg)] text-white">
+    <div className="relative min-h-screen overflow-x-hidden bg-[var(--shell-bg)] text-slate-900">
       <div className="pointer-events-none fixed inset-0">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.14),transparent_36%),radial-gradient(circle_at_bottom_right,rgba(245,158,11,0.10),transparent_26%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.72),transparent_42%),linear-gradient(180deg,rgba(255,255,255,0.24)_0%,rgba(245,245,247,0.18)_100%)]" />
       </div>
       {isMobileNavOpen ? (
         <div className="fixed inset-0 z-50 lg:hidden">
-          <button type="button" aria-label="Đóng menu" className="absolute inset-0 bg-[#010d24]/70 backdrop-blur-sm" onClick={() => setIsMobileNavOpen(false)} />
-          <div className="mobile-sheet absolute inset-x-3 bottom-3 top-3 rounded-[30px] border border-white/10 bg-[rgba(2,28,68,0.96)] p-4 shadow-[0_24px_80px_rgba(0,9,24,0.52)]">
-            <div className="flex items-center justify-between gap-3 border-b border-white/8 pb-4">
+          <button type="button" aria-label="Đóng menu" className="absolute inset-0 bg-[#0f172a]/40" onClick={() => setIsMobileNavOpen(false)} />
+          <div className="mobile-sheet absolute inset-x-3 bottom-3 top-3 rounded-[32px] border border-slate-200 bg-white p-4 shadow-[0_24px_80px_rgba(15,23,42,0.18)]">
+            <div className="flex items-center justify-between gap-3 border-b border-slate-200 pb-4">
               <div>
-                <div className="text-[11px] uppercase tracking-[0.28em] text-[var(--text-muted)]">Điều hướng</div>
-                <div className="mt-1 font-display text-xl font-semibold text-white">Các khu vực làm việc</div>
+                <div className="text-[12px] uppercase tracking-[0.16em] text-[var(--text-muted)]">Điều hướng</div>
+                <div className="mt-1 font-display text-xl font-semibold text-slate-900">Các khu vực làm việc</div>
               </div>
-              <button type="button" className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-white" onClick={() => setIsMobileNavOpen(false)}>
+              <button type="button" className="inline-flex h-12 w-12 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-900" onClick={() => setIsMobileNavOpen(false)}>
                 <X className="h-5 w-5" />
               </button>
             </div>
             <div className="mt-4 space-y-2 overflow-y-auto">
               {NAV_ITEMS.map((item) => {
                 const Icon = item.icon;
-                const count = {
-                  overview: warningCount,
-                  campaigns: campaigns.length,
-                  queue: stats.ready ?? 0,
-                  engagement: systemInfo?.pending_comment_replies ?? 0,
-                  messages: systemInfo?.pending_message_replies ?? 0,
-                  operations: taskSummary.failed ?? 0,
-                  security: users.length || (currentUser ? 1 : 0),
-                }[item.id];
+                const count = navCounts[item.id] || 0;
                 return (
-                  <button key={item.id} type="button" onClick={() => handleSectionChange(item.id)} className={cx('sidebar-link w-full rounded-[24px] px-4 py-4 text-left transition-all', activeSection === item.id && 'sidebar-link-active')}>
+                  <button key={item.id} type="button" onClick={() => handleSectionChange(item.id)} className={cx('sidebar-link w-full rounded-[22px] px-4 py-3.5 text-left transition-all', activeSection === item.id && 'sidebar-link-active')}>
                     <div className="flex items-start gap-3">
-                      <div className="mt-0.5 rounded-2xl border border-white/8 bg-black/10 p-2.5"><Icon className="h-4 w-4" /></div>
+                      <div className="mt-0.5 rounded-[16px] border border-slate-200 bg-white p-2.5"><Icon className="h-4 w-4" /></div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-3">
-                          <span className="font-medium text-white">{item.label}</span>
-                          <span className="rounded-full border border-white/10 bg-black/10 px-2.5 py-1 text-[11px] text-[var(--text-muted)]">{count}</span>
+                          <span className="font-medium text-slate-900">{item.label}</span>
+                          <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[12px] text-[var(--text-muted)]">{count}</span>
                         </div>
                         <div className="mt-1 text-sm text-[var(--text-soft)]">{item.description}</div>
                       </div>
@@ -3406,9 +1907,9 @@ function App() {
                 );
               })}
             </div>
-            <div className="mt-4 rounded-[24px] border border-white/8 bg-black/10 p-4">
-              <div className="text-[11px] uppercase tracking-[0.28em] text-[var(--text-muted)]">Phiên hiện tại</div>
-              <div className="mt-2 font-medium text-white">{currentUser?.display_name || currentUser?.username || 'Người dùng'}</div>
+            <div className="mt-4 rounded-[24px] border border-slate-200 bg-white p-4">
+              <div className="text-[12px] uppercase tracking-[0.16em] text-[var(--text-muted)]">Phiên hiện tại</div>
+              <div className="mt-2 font-medium text-slate-900">{currentUser?.display_name || currentUser?.username || 'Người dùng'}</div>
               <div className="mt-1 text-sm text-[var(--text-soft)]">{currentUser?.role === 'admin' ? 'Quản trị viên' : 'Vận hành'}</div>
               <button type="button" className={cx(BUTTON_GHOST, 'mt-4 w-full')} onClick={handleLogout}><LogOut className="h-4 w-4" />Đăng xuất</button>
             </div>
@@ -3416,36 +1917,28 @@ function App() {
         </div>
       ) : null}
       <div className="relative flex min-h-screen flex-col">
-        <aside className="hidden border-r border-white/8 bg-black/15 px-4 py-5 backdrop-blur-2xl lg:fixed lg:inset-y-0 lg:left-0 lg:z-30 lg:flex lg:h-screen lg:w-[17rem] lg:flex-col lg:overflow-y-auto">
+        <aside className="hidden border-r border-slate-200 bg-white px-4 py-4 lg:fixed lg:inset-y-0 lg:left-0 lg:z-30 lg:flex lg:h-screen lg:w-[16rem] lg:flex-col lg:overflow-y-auto">
           <div className="panel-strong rounded-[30px] p-5">
             <div className="flex items-center gap-4">
-              <div className="flex h-14 w-14 items-center justify-center rounded-[22px] border border-cyan-400/20 bg-cyan-400/10 text-cyan-100"><Zap className="h-6 w-6" /></div>
+              <div className="flex h-14 w-14 items-center justify-center rounded-[20px] border border-slate-200 bg-white text-[#0071e3]"><Zap className="h-6 w-6" /></div>
               <div>
-                <div className="text-[11px] uppercase tracking-[0.28em] text-[var(--text-muted)]">Social workbench</div>
-                <div className="mt-1 font-display text-xl font-semibold text-white">Trạm điều phối</div>
+                <div className="text-[12px] uppercase tracking-[0.16em] text-[var(--text-muted)]">Social Workbench</div>
+                <div className="mt-1 font-display text-xl font-semibold text-slate-900">Trạm điều phối</div>
               </div>
             </div>
           </div>
           <nav className="mt-6 space-y-2">
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
-              const count = {
-                overview: warningCount,
-                campaigns: campaigns.length,
-                queue: stats.ready ?? 0,
-                engagement: systemInfo?.pending_comment_replies ?? 0,
-                messages: systemInfo?.pending_message_replies ?? 0,
-                operations: taskSummary.failed ?? 0,
-                security: users.length || (currentUser ? 1 : 0),
-              }[item.id];
+              const count = navCounts[item.id] || 0;
               return (
-                <button key={item.id} type="button" onClick={() => handleSectionChange(item.id)} className={cx('sidebar-link w-full rounded-[24px] px-4 py-4 text-left transition-all', activeSection === item.id && 'sidebar-link-active')}>
+                <button key={item.id} type="button" onClick={() => handleSectionChange(item.id)} className={cx('sidebar-link w-full rounded-[22px] px-4 py-3.5 text-left transition-all', activeSection === item.id && 'sidebar-link-active')}>
                   <div className="flex items-start gap-3">
-                    <div className="mt-0.5 rounded-2xl border border-white/8 bg-black/10 p-2.5"><Icon className="h-4 w-4" /></div>
+                    <div className="mt-0.5 rounded-[16px] border border-slate-200 bg-white p-2.5"><Icon className="h-4 w-4" /></div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-3">
-                        <span className="font-medium text-white">{item.label}</span>
-                        <span className="rounded-full border border-white/10 bg-black/10 px-2.5 py-1 text-[11px] text-[var(--text-muted)]">{count}</span>
+                        <span className="font-medium text-slate-900">{item.label}</span>
+                        <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[12px] text-[var(--text-muted)]">{count}</span>
                       </div>
                     </div>
                   </div>
@@ -3453,26 +1946,26 @@ function App() {
               );
             })}
           </nav>
-          <div className="mt-auto rounded-[26px] border border-white/8 bg-black/10 p-4">
-            <div className="text-[11px] uppercase tracking-[0.28em] text-[var(--text-muted)]">Phiên hiện tại</div>
-            <div className="mt-3 font-medium text-white">{currentUser?.display_name || currentUser?.username || 'Người dùng'}</div>
+          <div className="mt-auto rounded-[26px] border border-slate-200 bg-white p-4">
+            <div className="text-[12px] uppercase tracking-[0.16em] text-[var(--text-muted)]">Phiên hiện tại</div>
+            <div className="mt-3 font-medium text-slate-900">{currentUser?.display_name || currentUser?.username || 'Người dùng'}</div>
             <div className="mt-1 text-sm text-[var(--text-soft)]">{currentUser?.role === 'admin' ? 'Quản trị viên' : 'Vận hành'}</div>
             <button type="button" className={cx(BUTTON_GHOST, 'mt-4 w-full')} onClick={handleLogout}><LogOut className="h-4 w-4" />Đăng xuất</button>
           </div>
         </aside>
-        <div className="min-w-0 flex-1 lg:pl-[17rem]">
-          <div className="mx-auto flex min-h-screen w-full max-w-[1720px] flex-col px-3 py-3 sm:px-4 sm:py-4 lg:px-5 xl:px-6">
-            <Panel className="sticky top-0 z-20 overflow-hidden border-white/10 bg-[rgba(2,28,68,0.92)] backdrop-blur-xl">
+        <div className="min-w-0 flex-1 lg:pl-[16rem]">
+          <div className="mx-auto flex min-h-screen w-full max-w-[1460px] flex-col px-3 py-3 sm:px-4 sm:py-4 lg:px-5 xl:px-5 min-[1800px]:max-w-[1660px]">
+            <Panel className="sticky top-0 z-20 overflow-hidden border-slate-200 bg-white">
               <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div className="flex items-start gap-3">
-                  <button type="button" className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-white lg:hidden" onClick={() => setIsMobileNavOpen(true)}>
+                  <button type="button" className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-900 lg:hidden" onClick={() => setIsMobileNavOpen(true)}>
                     <Menu className="h-5 w-5" />
                   </button>
                   <div className="min-w-0">
                     <StatusPill tone="sky" icon={Activity}>Dashboard vận hành</StatusPill>
-                    <div className="mt-4 text-[11px] uppercase tracking-[0.32em] text-[var(--text-muted)]">{systemInfo?.project_name || 'Hệ thống tự động mạng xã hội'}</div>
-                    <h1 className="mt-3 font-display text-[1.4rem] font-semibold text-white sm:text-[1.7rem] md:text-[2rem]">{currentSection.label}</h1>
-                    <p className="mt-2 text-sm text-[var(--text-soft)] lg:hidden">{currentSection.description}</p>
+                    <div className="mt-3 text-[12px] uppercase tracking-[0.14em] text-[var(--text-muted)]">{systemInfo?.project_name || 'Hệ thống tự động mạng xã hội'}</div>
+                    <h1 className="mt-2 font-display text-[1.55rem] font-semibold text-slate-900 sm:text-[1.8rem] md:text-[2.15rem]">{currentSection.label}</h1>
+                    <p className="mt-2 max-w-2xl text-[13px] leading-6 text-[var(--text-soft)] lg:hidden">{currentSection.description}</p>
                   </div>
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row">
@@ -3483,9 +1976,9 @@ function App() {
                   <button type="button" className={BUTTON_SECONDARY} onClick={() => fetchDashboard()}><RefreshCw className={cx('h-4 w-4', isRefreshing ? 'animate-spin' : '')} />Làm mới</button>
                 </div>
               </div>
-              {notice ? <div className={cx('mt-5 rounded-[24px] border px-4 py-4 text-sm leading-7', notice.type === 'success' ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100' : 'border-rose-400/20 bg-rose-400/10 text-rose-100')}>{notice.message}</div> : null}
+              {notice ? <div className={cx('mt-5 rounded-[20px] border px-4 py-4 text-[13px] leading-6', notice.type === 'success' ? 'border-emerald-200/80 bg-emerald-50/80 text-emerald-700' : 'border-rose-200/80 bg-rose-50/80 text-rose-700')}>{notice.message}</div> : null}
             </Panel>
-            <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               {visibleMetricCards.map((metric) => <MetricCard key={metric.label} {...metric} />)}
             </div>
             {metricCards.length > 4 ? (
@@ -3494,7 +1987,7 @@ function App() {
               </div>
             ) : null}
             <div className="mt-5">{renderMobileQuickPanel()}</div>
-            <div className="mt-6 grid gap-5 2xl:grid-cols-[minmax(0,1fr)_19rem]">
+            <div className="mt-5 grid gap-4 2xl:grid-cols-[minmax(0,1fr)_16.75rem] min-[1800px]:grid-cols-[minmax(0,1fr)_17.75rem]">
               <div className="min-w-0 space-y-6">{renderActiveSection()}</div>
               <aside className="hidden space-y-5 2xl:sticky 2xl:top-5 2xl:block 2xl:h-fit">
                 <Panel eyebrow="Nhịp nhanh" title="Bảng điều phối">
@@ -3506,38 +1999,35 @@ function App() {
                     <InfoRow label="Bài đăng gần nhất" value={formatDateTime(stats.last_posted)} />
                   </div>
                 </Panel>
-                <Panel eyebrow="Cần chú ý" title="Chiến dịch nổi bật">
+                <Panel eyebrow="Nhịp vận hành" title="Mốc thời gian quan trọng">
                   <div className="space-y-3">
-                    {focusCampaigns.length === 0 ? (
-                      <div className="rounded-[22px] border border-white/8 bg-black/10 px-4 py-4 text-sm leading-7 text-[var(--text-soft)]">
-                        Chưa có chiến dịch cần chú ý.
-                      </div>
-                    ) : focusCampaigns.map((campaign) => (
-                      <button key={campaign.id} type="button" onClick={() => handleSectionChange('campaigns')} className="w-full rounded-[22px] border border-white/8 bg-black/10 px-4 py-4 text-left transition hover:border-cyan-400/20 hover:bg-cyan-400/6">
-                        <div className="font-medium text-white">{campaign.name}</div>
-                        <div className="mt-2 text-sm text-[var(--text-soft)]">
-                          {campaign.video_counts?.failed ?? 0} video failed • trạng thái sync {getSyncStateMeta(campaign.last_sync_status).label.toLowerCase()}
-                        </div>
-                      </button>
-                    ))}
+                    <InfoRow label="Lượt đăng kế tiếp" value={formatRelTime(stats.next_publish)} emphasis />
+                    <InfoRow label="Mốc cuối hàng chờ" value={formatDateTime(stats.queue_end)} />
+                    <InfoRow label="Bài đăng gần nhất" value={formatDateTime(stats.last_posted)} />
+                    <InfoRow label="Tác vụ nền" value={systemInfo?.background_jobs_mode || 'Chưa có'} />
+                    <InfoRow label="Bộ lập lịch" value={healthInfo?.config?.scheduler_enabled ? `Bật, quét ${systemInfo?.scheduler_interval_minutes || 0} phút/lần` : 'Đang tắt'} />
                   </div>
                 </Panel>
-                <Panel eyebrow="Fanpage" title="Kết nối nhanh">
+                <Panel
+                  eyebrow="Cài đặt"
+                  title="Tình trạng cấu hình"
+                  action={(
+                    <button type="button" className={BUTTON_GHOST} onClick={() => handleSectionChange('settings')}>
+                      <Terminal className="h-4 w-4" />
+                      Mở
+                    </button>
+                  )}
+                >
                   <div className="space-y-3">
-                    {fbPages.length === 0 ? <div className="rounded-[22px] border border-white/8 bg-black/10 px-4 py-4 text-sm text-[var(--text-soft)]">Chưa cấu hình fanpage nào.</div> : fbPages.slice(0, 4).map((pageItem) => {
-                      const validation = pageChecks[pageItem.page_id];
-                      const tokenMeta = getPageTokenMeta(getResolvedPageTokenKind(pageItem, validation));
-                      const messengerMeta = getMessengerConnectionMeta(validation);
-                      return (
-                        <div key={pageItem.page_id} className="rounded-[22px] border border-white/8 bg-black/10 px-4 py-4">
-                          <div className="font-medium text-white">{pageItem.page_name}</div>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            <StatusPill tone={tokenMeta.tone}>{tokenMeta.label}</StatusPill>
-                            <StatusPill tone={messengerMeta.tone}>{messengerMeta.label}</StatusPill>
-                          </div>
-                        </div>
-                      );
-                    })}
+                    <InfoRow label="Fanpage đã cấu hình" value={fbPages.length} emphasis />
+                    <InfoRow label="Webhook đã nối" value={`${connectedMessagePages}/${fbPages.length || 0}`} />
+                    <InfoRow label="Trang cần xử lý" value={pagesNeedingAttention} emphasis={pagesNeedingAttention > 0} />
+                    <InfoRow label="Runtime ghi đè" value={runtimeOverrideCount} />
+                    <div className="rounded-[20px] border border-slate-200 bg-white px-4 py-4 text-[13px] leading-6 text-[var(--text-soft)]">
+                      {pagesNeedingAttention > 0
+                        ? 'Nên vào mục Cài đặt để kiểm tra lại token hoặc webhook của các fanpage đang cần xử lý.'
+                        : 'Khu Cài đặt hiện đang là nơi tập trung toàn bộ phần fanpage, Meta app và runtime.'}
+                    </div>
                   </div>
                 </Panel>
               </aside>
@@ -3550,3 +2040,6 @@ function App() {
 }
 
 export default App;
+
+
+
