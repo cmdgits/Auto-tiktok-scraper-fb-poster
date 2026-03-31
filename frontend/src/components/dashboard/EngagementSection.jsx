@@ -64,6 +64,7 @@ export default function EngagementSection({ state, actions, helpers, classes }) 
     handleGenerateCommentAiDraft,
     handleCommentReplyDraftChange,
     handleCommentManualReply,
+    handleDeleteCommentLog,
   } = actions;
   const {
     formatDateTime,
@@ -130,6 +131,7 @@ export default function EngagementSection({ state, actions, helpers, classes }) 
               const isModeBusy = !!actionState[`comment-mode-${log.id}`];
               const isDraftBusy = !!actionState[`comment-draft-${log.id}`];
               const isReplyBusy = !!actionState[`comment-reply-${log.id}`];
+              const isDeleteBusy = !!actionState[`comment-delete-${log.id}`];
               const isReplied = log.status === 'replied';
               const replyDraft = commentReplyDrafts[log.id] || '';
               const isAiFailure = log.status === 'failed' && (replyMode === 'ai' || log.reply_source === 'ai');
@@ -174,8 +176,16 @@ export default function EngagementSection({ state, actions, helpers, classes }) 
                     {summarizeText(log.user_message, 'Chưa có bình luận.')}
                   </div>
 
-                  <div className="mt-4 flex justify-start">
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                     <DetailToggle expanded={isExpanded} onClick={() => toggleExpandedItem(`comment:${log.id}`)} />
+                    <button
+                      type="button"
+                      disabled={isDeleteBusy}
+                      onClick={() => handleDeleteCommentLog(log)}
+                      className={cx(BUTTON_GHOST, 'border-rose-200 bg-rose-50 text-rose-700 hover:border-rose-300 hover:bg-rose-100')}
+                    >
+                      {isDeleteBusy ? 'Đang xóa...' : 'Xóa khỏi dashboard'}
+                    </button>
                   </div>
 
                   {isExpanded ? (

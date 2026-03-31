@@ -34,6 +34,7 @@ export default function ConversationWorkspace({
     handleConversationStatusChange,
     setManualReplyDraft,
     handleManualReply,
+    handlePrepareMessageCorrection,
   } = actions;
   const {
     formatDateTime,
@@ -144,6 +145,16 @@ export default function ConversationWorkspace({
           <div className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Timeline cuộc trò chuyện</div>
           <StatusPill tone="slate">{selectedConversationLogs.length} bản ghi</StatusPill>
         </div>
+        <div className="mt-4 rounded-[20px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              Tin nhắn khách hàng là dữ liệu chỉ đọc, không được sửa hoặc xóa từ dashboard.
+              Phản hồi của AI hoặc quản trị viên cũng không thể sửa hoặc xóa trực tiếp trên Facebook bằng Messenger Send API hiện tại.
+              Nút <span className="font-semibold">Nạp lại</span> chỉ chép nội dung cũ xuống khung soạn để bạn sửa rồi gửi một tin nhắn đính chính mới. Nếu cần xóa hẳn cuộc chat, dùng mục <span className="font-semibold">Tác vụ</span> ở danh sách bên trái để mở đúng thread trên Facebook và xóa trong Business Suite.
+            </div>
+          </div>
+        </div>
         {selectedConversationTimeline.length === 0 ? (
           <div className="mt-4">
             <EmptyState title="Chưa có timeline" description="Lịch sử chat sẽ hiện ở đây khi có tin nhắn hoặc phản hồi." />
@@ -164,7 +175,19 @@ export default function ConversationWorkspace({
               >
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="font-medium text-slate-900">{event.sourceLabel}</div>
-                  <StatusPill tone="slate" icon={Clock}>{formatDateTime(event.time)}</StatusPill>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusPill tone="slate" icon={Clock}>{formatDateTime(event.time)}</StatusPill>
+                    {event.canPrepareCorrection ? (
+                      <button
+                        type="button"
+                        className={cx(BUTTON_GHOST, 'px-3 py-1.5')}
+                        onClick={() => handlePrepareMessageCorrection(event)}
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" />
+                        Nạp lại
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
                 <div className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-900">{event.text}</div>
               </div>
@@ -180,7 +203,7 @@ export default function ConversationWorkspace({
             <div className="mt-2 text-sm text-[var(--text-soft)]">
               {isAiActive
                 ? 'AI đang xử lý cuộc chat này. Nếu cần can thiệp tay, hãy chuyển operator trước.'
-                : 'Nhập nội dung để operator phản hồi trực tiếp từ dashboard.'}
+                : 'Nhập nội dung để operator phản hồi trực tiếp hoặc gửi tin nhắn đính chính từ dashboard.'}
             </div>
           </div>
           {!isAiActive ? <StatusPill tone="rose">AI đang tạm dừng cho case này</StatusPill> : null}
@@ -191,7 +214,7 @@ export default function ConversationWorkspace({
             className={cx(FIELD_CLASS, 'min-h-[160px] resize-y')}
             value={manualReplyDraft}
             onChange={(event) => setManualReplyDraft(event.target.value)}
-            placeholder={isAiActive ? 'Chuyển operator để phản hồi tay.' : 'Nhập phản hồi gửi cho khách hàng.'}
+            placeholder={isAiActive ? 'Chuyển operator để phản hồi tay.' : 'Nhập phản hồi hoặc nội dung đính chính gửi cho khách hàng.'}
             disabled={isAiActive}
           />
           <div className="mobile-action-stack">

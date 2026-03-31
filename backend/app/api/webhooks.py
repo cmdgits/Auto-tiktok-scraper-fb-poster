@@ -13,7 +13,7 @@ from app.api.auth import require_admin, require_authenticated_user
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.time import utc_now
-from app.models.models import ConversationStatus, FacebookPage, InboxConversation, InboxMessageLog, InteractionLog, InteractionStatus, User
+from app.models.models import ConversationStatus, FacebookPage, InboxConversation, InboxMessageLog, InteractionLog, InteractionStatus, TaskQueue, TaskStatus, User
 from app.services.accounts import serialize_user
 from app.services.ai_generator import generate_reply
 from app.services.inbox_memory import get_or_create_inbox_conversation, serialize_conversation, touch_conversation_with_customer_message
@@ -21,7 +21,7 @@ from app.services.observability import record_event
 from app.services.runtime_settings import resolve_runtime_value
 from app.services.security import verify_facebook_signature
 from app.services.task_queue import TASK_TYPE_COMMENT_REPLY, TASK_TYPE_MESSAGE_REPLY, enqueue_task
-from app.services.fb_graph import delete_comment, lookup_profile_name, reply_to_comment, send_page_message
+from app.services.fb_graph import delete_comment, lookup_profile_name, moderate_conversation, reply_to_comment, send_page_message
 from app.services.security import decrypt_secret
 
 router = APIRouter(prefix="/webhooks", tags=["Webhook"])
@@ -248,6 +248,61 @@ def _get_interaction_log_or_404(db: Session, interaction_log_id: str) -> Interac
     if not log:
         raise HTTPException(status_code=404, detail="Không tìm thấy bình luận cần xử lý.")
     return log
+
+
+def _delete_related_tasks_or_raise(
+    db: Session,
+    *,
+    entity_type: str,
+    entity_id: str,
+) -> int:
+    tasks = (
+        db.query(TaskQueue)
+        .filter(
+            TaskQueue.entity_type == entity_type,
+            TaskQueue.entity_id == entity_id,
+        )
+        .all()
+    )
+    if any(task.status == TaskStatus.processing for task in tasks):
+        raise HTTPException(status_code=409, detail="Bản ghi này đang được worker xử lý, hãy thử lại sau.")
+
+    for task in tasks:
+        db.delete(task)
+    return len(tasks)
+
+
+def _purge_conversation_or_raise(
+    db: Session,
+    *,
+    conversation: InboxConversation,
+) -> dict:
+    logs = db.query(InboxMessageLog).filter(InboxMessageLog.conversation_id == conversation.id).all()
+    deleted_task_count = 0
+    deleted_log_count = len(logs)
+    for log in logs:
+        deleted_task_count += _delete_related_tasks_or_raise(
+            db,
+            entity_type="inbox_message_log",
+            entity_id=str(log.id),
+        )
+
+    for log in logs:
+        db.delete(log)
+
+    conversation_id = str(conversation.id)
+    page_id = conversation.page_id
+    sender_id = conversation.sender_id
+    db.delete(conversation)
+    db.commit()
+
+    return {
+        "conversation_id": conversation_id,
+        "page_id": page_id,
+        "sender_id": sender_id,
+        "deleted_log_count": deleted_log_count,
+        "deleted_task_count": deleted_task_count,
+    }
 
 
 def _set_conversation_status(
@@ -604,6 +659,52 @@ def get_interaction_logs(
     return [serialize_interaction_log(log, reply_author=reply_user_map.get(log.reply_author_user_id)) for log in logs]
 
 
+@router.delete("/comments/{interaction_log_id}")
+def delete_comment_interaction(
+    interaction_log_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_authenticated_user),
+):
+    log = _get_interaction_log_or_404(db, interaction_log_id)
+    page_config = db.query(FacebookPage).filter(FacebookPage.page_id == log.page_id).first()
+    if not page_config or not page_config.long_lived_access_token:
+        raise HTTPException(status_code=400, detail="Trang Facebook chưa có Page Access Token hợp lệ để xóa bình luận.")
+
+    access_token = decrypt_secret(page_config.long_lived_access_token)
+    delete_response = delete_comment(log.comment_id, access_token)
+    if not delete_response or delete_response.get("error"):
+        raise HTTPException(
+            status_code=502,
+            detail=delete_response.get("error") if isinstance(delete_response, dict) else "Không thể xóa bình luận trên Facebook.",
+        )
+
+    deleted_task_count = _delete_related_tasks_or_raise(
+        db,
+        entity_type="interaction_log",
+        entity_id=str(log.id),
+    )
+    comment_id = log.comment_id
+    page_id = log.page_id
+    db.delete(log)
+    db.commit()
+
+    record_event(
+        "webhook",
+        "info",
+        "Đã xóa bình luận trên Facebook và khỏi dashboard.",
+        db=db,
+        actor_user_id=str(current_user.id),
+        details={
+            "interaction_log_id": interaction_log_id,
+            "comment_id": comment_id,
+            "page_id": page_id,
+            "deleted_task_count": deleted_task_count,
+        },
+    )
+
+    return {"message": "Đã xóa bình luận trên Facebook page và khỏi dashboard."}
+
+
 @router.patch("/comments/{interaction_log_id}")
 def update_comment_interaction(
     interaction_log_id: str,
@@ -792,6 +893,175 @@ def get_message_logs(
         )
         for log in logs
     ]
+
+
+@router.delete("/messages/{message_log_id}")
+def delete_message_log(
+    message_log_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_authenticated_user),
+):
+    try:
+        log_uuid = uuid.UUID(message_log_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Mã tin nhắn không hợp lệ.") from exc
+
+    log = db.query(InboxMessageLog).filter(InboxMessageLog.id == log_uuid).first()
+    if not log:
+        raise HTTPException(status_code=404, detail="Không tìm thấy đoạn tin nhắn cần xóa.")
+
+    if (log.user_message or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Không được xóa tin nhắn của khách hàng từ dashboard. Meta Messenger API hiện không hỗ trợ xóa tin nhắn này qua tích hợp.",
+        )
+
+    if log.facebook_reply_message_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Meta Messenger API hiện không hỗ trợ xóa tin nhắn fanpage đã gửi. Hãy gửi một tin nhắn đính chính mới thay vì xóa.",
+        )
+
+    deleted_task_count = _delete_related_tasks_or_raise(
+        db,
+        entity_type="inbox_message_log",
+        entity_id=str(log.id),
+    )
+    conversation_id = str(log.conversation_id) if log.conversation_id else None
+    page_id = log.page_id
+    sender_id = log.sender_id
+    conversation_uuid = log.conversation_id
+
+    db.delete(log)
+    deleted_conversation_id = None
+    if conversation_uuid:
+        remaining_count = (
+            db.query(InboxMessageLog)
+            .filter(InboxMessageLog.conversation_id == conversation_uuid, InboxMessageLog.id != log_uuid)
+            .count()
+        )
+        if remaining_count == 0:
+            conversation = db.query(InboxConversation).filter(InboxConversation.id == conversation_uuid).first()
+            if conversation:
+                deleted_conversation_id = str(conversation.id)
+                db.delete(conversation)
+
+    db.commit()
+
+    record_event(
+        "webhook",
+        "info",
+        "Đã xóa đoạn tin nhắn khỏi dashboard.",
+        db=db,
+        actor_user_id=str(current_user.id),
+        details={
+            "message_log_id": message_log_id,
+            "conversation_id": conversation_id,
+            "page_id": page_id,
+            "sender_id": sender_id,
+            "deleted_task_count": deleted_task_count,
+            "deleted_conversation_id": deleted_conversation_id,
+        },
+    )
+
+    return {
+        "message": "Đã xóa đoạn tin nhắn khỏi dashboard.",
+        "deleted_conversation_id": deleted_conversation_id,
+    }
+
+
+@router.delete("/conversations/{conversation_id}/remove")
+def moderate_and_remove_conversation(
+    conversation_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_authenticated_user),
+):
+    try:
+        conversation_uuid = uuid.UUID(conversation_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Mã conversation không hợp lệ.") from exc
+
+    conversation = db.query(InboxConversation).filter(InboxConversation.id == conversation_uuid).first()
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Không tìm thấy conversation cần xử lý.")
+
+    page_config = db.query(FacebookPage).filter(FacebookPage.page_id == conversation.page_id).first()
+    if not page_config or not page_config.long_lived_access_token:
+        raise HTTPException(status_code=400, detail="Trang Facebook chưa có Page Access Token hợp lệ.")
+
+    access_token = decrypt_secret(page_config.long_lived_access_token)
+    moderation_response = moderate_conversation(
+        conversation.page_id,
+        conversation.sender_id,
+        access_token,
+        actions=("move_to_spam", "block_user"),
+    )
+    if not moderation_response or moderation_response.get("error"):
+        raise HTTPException(
+            status_code=502,
+            detail=moderation_response.get("error") if isinstance(moderation_response, dict) else "Không thể chặn người gửi trên Facebook.",
+        )
+
+    purge_result = _purge_conversation_or_raise(db, conversation=conversation)
+
+    record_event(
+        "webhook",
+        "info",
+        "Đã chặn người gửi, chuyển hội thoại vào spam trên Facebook và ẩn khỏi dashboard.",
+        db=db,
+        actor_user_id=str(current_user.id),
+        details={
+            "conversation_id": conversation_id,
+            "page_id": purge_result["page_id"],
+            "sender_id": purge_result["sender_id"],
+            "deleted_log_count": purge_result["deleted_log_count"],
+            "deleted_task_count": purge_result["deleted_task_count"],
+            "moderation_actions": ["move_to_spam", "block_user"],
+        },
+    )
+
+    return {
+        "message": "Đã chặn người gửi, chuyển hội thoại vào spam trên Facebook và ẩn khỏi dashboard.",
+        "deleted_conversation_id": purge_result["conversation_id"],
+    }
+
+
+@router.delete("/conversations/{conversation_id}/hide")
+def hide_conversation_from_dashboard(
+    conversation_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_authenticated_user),
+):
+    try:
+        conversation_uuid = uuid.UUID(conversation_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Mã conversation không hợp lệ.") from exc
+
+    conversation = db.query(InboxConversation).filter(InboxConversation.id == conversation_uuid).first()
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Không tìm thấy conversation cần ẩn.")
+
+    purge_result = _purge_conversation_or_raise(db, conversation=conversation)
+
+    record_event(
+        "webhook",
+        "info",
+        "Đã ẩn conversation khỏi dashboard mà không thay đổi gì trên Facebook.",
+        db=db,
+        actor_user_id=str(current_user.id),
+        details={
+            "conversation_id": purge_result["conversation_id"],
+            "page_id": purge_result["page_id"],
+            "sender_id": purge_result["sender_id"],
+            "deleted_log_count": purge_result["deleted_log_count"],
+            "deleted_task_count": purge_result["deleted_task_count"],
+        },
+    )
+
+    return {
+        "message": "Đã ẩn conversation khỏi dashboard. Cuộc chat trên Facebook vẫn được giữ nguyên.",
+        "deleted_conversation_id": purge_result["conversation_id"],
+    }
 
 
 @router.get("/conversations")

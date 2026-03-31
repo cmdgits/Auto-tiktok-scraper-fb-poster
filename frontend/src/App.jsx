@@ -338,11 +338,13 @@ function buildConversationTimeline(logs) {
     if (customerText) {
       events.push({
         id: `${log.id}-customer`,
+        logId: log.id,
         type: 'customer',
         text: customerText,
         time: log.created_at,
-        sourceLabel: 'Khách hàng',
+        sourceLabel: log.sender_name || 'Khách hàng',
         status: log.status,
+        canPrepareCorrection: false,
       });
     }
 
@@ -352,11 +354,13 @@ function buildConversationTimeline(logs) {
       const isOperator = log.reply_source === 'operator';
       events.push({
         id: `${log.id}-reply`,
+        logId: log.id,
         type: isOperator ? 'operator' : 'ai',
         text: replyText,
         time: log.updated_at || log.created_at,
         sourceLabel: isOperator ? (log.reply_author?.display_name || 'Operator') : 'AI fanpage',
         status: log.status,
+        canPrepareCorrection: true,
       });
     }
   });
@@ -1425,6 +1429,79 @@ function App() {
     }
   };
 
+  const handlePrepareMessageCorrection = async (event) => {
+    const draftText = (event?.text || '').trim();
+    if (!draftText) {
+      showNotice('error', 'Không tìm thấy nội dung phản hồi cũ để nạp lại.');
+      return;
+    }
+
+    setManualReplyDraft(draftText);
+
+    if (!selectedConversationId || !selectedConversation) {
+      showNotice('success', 'Đã nạp nội dung cũ vào khung phản hồi.');
+      return;
+    }
+
+    if (selectedConversation.status === 'ai_active') {
+      await handleConversationStatusChange(
+        selectedConversationId,
+        'operator_active',
+        'Đã chuyển cho operator để chỉnh lại nội dung phản hồi.',
+      );
+      showNotice('success', 'Đã nạp nội dung cũ. Hệ thống sẽ chuyển sang operator để bạn sửa và gửi một tin nhắn đính chính mới.');
+      return;
+    }
+
+    manualReplyPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    manualReplyInputRef.current?.focus();
+    showNotice('success', 'Đã nạp nội dung cũ vào khung phản hồi để bạn sửa và gửi tin nhắn đính chính mới.');
+  };
+
+  const handleConversationRemove = async (conversation) => {
+    if (!conversation?.id) return;
+
+    const confirmed = await confirmAction({
+      title: 'Chặn và ẩn conversation',
+      description: 'Meta Messenger API không có lệnh xóa hẳn đoạn chat. Hệ thống sẽ chặn người gửi, chuyển cuộc chat này vào spam trên Facebook Page, rồi ẩn toàn bộ conversation khỏi dashboard.',
+      confirmLabel: 'Chặn và ẩn',
+      tone: 'rose',
+    });
+    if (!confirmed) return;
+
+    const payload = await runAction(`conversation-remove-${conversation.id}`, () => requestJson(`${API_URL}/webhooks/conversations/${conversation.id}/remove`, {
+      method: 'DELETE',
+    }));
+    if (payload?.deleted_conversation_id && selectedConversationId === payload.deleted_conversation_id) {
+      setSelectedConversationId(null);
+      setSelectedConversation(null);
+      setSelectedConversationLogs([]);
+      setManualReplyDraft('');
+    }
+  };
+
+  const handleConversationHide = async (conversation) => {
+    if (!conversation?.id) return;
+
+    const confirmed = await confirmAction({
+      title: 'Ẩn conversation khỏi dashboard',
+      description: 'Hệ thống sẽ xóa conversation này khỏi dashboard và dọn các task nội bộ liên quan. Cuộc chat trên Facebook vẫn được giữ nguyên.',
+      confirmLabel: 'Ẩn khỏi dashboard',
+      tone: 'slate',
+    });
+    if (!confirmed) return;
+
+    const payload = await runAction(`conversation-hide-${conversation.id}`, () => requestJson(`${API_URL}/webhooks/conversations/${conversation.id}/hide`, {
+      method: 'DELETE',
+    }));
+    if (payload?.deleted_conversation_id && selectedConversationId === payload.deleted_conversation_id) {
+      setSelectedConversationId(null);
+      setSelectedConversation(null);
+      setSelectedConversationLogs([]);
+      setManualReplyDraft('');
+    }
+  };
+
   const handlePrioritize = async (videoId) => {
     await runAction(`video-${videoId}`, () => requestJson(`${API_URL}/campaigns/videos/${videoId}/priority`, { method: 'POST' }));
   };
@@ -1507,6 +1584,43 @@ function App() {
 
     if (payload?.log) {
       setCommentReplyDrafts((current) => ({ ...current, [log.id]: payload.log.ai_reply || message }));
+    }
+  };
+
+  const handleDeleteCommentLog = async (log) => {
+    if (!log?.id) return;
+
+    const confirmed = await confirmAction({
+      title: 'Xóa bình luận khỏi dashboard',
+      description: 'Hệ thống sẽ xóa bình luận này trực tiếp trên Facebook page trước, sau đó mới xóa bản ghi khỏi dashboard cùng các task liên quan chưa chạy.',
+      confirmLabel: 'Xóa bình luận',
+      tone: 'rose',
+    });
+    if (!confirmed) return;
+
+    await runAction(`comment-delete-${log.id}`, () => requestJson(`${API_URL}/webhooks/comments/${log.id}`, {
+      method: 'DELETE',
+    }));
+  };
+
+  const handleDeleteMessageLog = async (logId) => {
+    if (!logId) return;
+
+    const confirmed = await confirmAction({
+      title: 'Xóa đoạn tin nhắn khỏi dashboard',
+      description: 'Đoạn tin nhắn này sẽ bị xóa khỏi dashboard. Nếu đây là bản ghi cuối cùng trong conversation, conversation đó cũng sẽ bị xóa khỏi danh sách.',
+      confirmLabel: 'Xóa đoạn tin nhắn',
+      tone: 'rose',
+    });
+    if (!confirmed) return;
+
+    const payload = await runAction(`message-delete-${logId}`, () => requestJson(`${API_URL}/webhooks/messages/${logId}`, {
+      method: 'DELETE',
+    }));
+    if (payload?.deleted_conversation_id && selectedConversationId === payload.deleted_conversation_id) {
+      setSelectedConversationId(null);
+      setSelectedConversation(null);
+      setSelectedConversationLogs([]);
     }
   };
 
@@ -1921,6 +2035,7 @@ function App() {
         handleGenerateCommentAiDraft,
         handleCommentReplyDraftChange,
         handleCommentManualReply,
+        handleDeleteCommentLog,
       }}
       helpers={{
         formatDateTime,
@@ -1973,12 +2088,16 @@ function App() {
         handleReplyAutomationDraftChange,
         setConversationStatusFilter,
         setSelectedConversationId,
+        handleConversationRemove,
+        handleConversationHide,
         handleConversationStatusChange,
         setConversationAssigneeDraft,
         setConversationNoteDraft,
         handleConversationMetaSave,
         setManualReplyDraft,
         handleManualReply,
+        handlePrepareMessageCorrection,
+        handleDeleteMessageLog,
       }}
       helpers={{
         buildReplyAutomationDraft,

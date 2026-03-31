@@ -562,3 +562,34 @@ def send_page_message(recipient_id: str, message: str, access_token: str):
             details={"recipient_id": recipient_id, "error": str(exc)},
         )
         return {"error": str(exc)}
+
+
+def moderate_conversation(page_id: str, user_id: str, access_token: str, actions: tuple[str, ...] | list[str]):
+    try:
+        normalized_actions = [action for action in actions if action]
+        result = _graph_post(
+            f"{page_id}/moderate_conversations",
+            params={"access_token": access_token},
+            json_payload={
+                "user_ids": [{"id": user_id}],
+                "actions": normalized_actions,
+            },
+            timeout=30,
+        )
+        if not result["ok"]:
+            log_structured(
+                "facebook_graph",
+                "warning",
+                "Facebook từ chối moderate conversation.",
+                details={"page_id": page_id, "user_id": user_id, "actions": normalized_actions, "message": result["message"]},
+            )
+            return {"error": result["message"], **(result.get("data") or {})}
+        return result["data"]
+    except Exception as exc:
+        log_structured(
+            "facebook_graph",
+            "error",
+            "Lỗi API moderate conversation Facebook.",
+            details={"page_id": page_id, "user_id": user_id, "actions": list(actions or []), "error": str(exc)},
+        )
+        return {"error": str(exc)}
