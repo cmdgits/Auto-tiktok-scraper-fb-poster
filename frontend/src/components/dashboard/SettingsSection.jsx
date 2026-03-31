@@ -880,7 +880,7 @@ export default function SettingsSection({
                 ))}
               </div>
               <div className="mt-4 rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4 text-[13px] leading-6 text-[var(--text-soft)]">
-                Để trống một ô rồi bấm lưu nếu muốn quay về giá trị đang lấy từ môi trường.
+                Nút làm trống chỉ reset form đang nhập. Cấu hình đã lưu chỉ thay đổi khi bạn bấm lưu cấu hình.
               </div>
             </div>
             <div className="flex flex-wrap justify-end gap-2">
@@ -890,7 +890,7 @@ export default function SettingsSection({
                 onClick={handleRestoreRuntimeConfig}
                 disabled={actionState['restore-runtime-config']}
               >
-                {actionState['restore-runtime-config'] ? 'Đang tải lại...' : 'Khôi phục giá trị đã lưu'}
+                {actionState['restore-runtime-config'] ? 'Đang làm trống...' : 'Làm trống để nhập mới'}
               </button>
               <button type="submit" disabled={actionState['save-runtime-config']} className={BUTTON_PRIMARY}>
                 <ShieldCheck className="h-4 w-4" />
