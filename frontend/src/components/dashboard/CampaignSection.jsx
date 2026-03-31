@@ -33,6 +33,7 @@ export default function CampaignSection({
   const {
     formData,
     fbPages,
+    campaignScheduleDrafts,
     actionState,
     campaignSourceFilter,
     campaigns,
@@ -47,6 +48,9 @@ export default function CampaignSection({
     setCampaignSourceFilter,
     toggleExpandedItem,
     handleCampaignAction,
+    handleCampaignScheduleDraftChange,
+    handleCampaignScheduleReset,
+    handleCampaignScheduleSave,
   } = actions;
   const {
     detectSourcePreview,
@@ -56,6 +60,7 @@ export default function CampaignSection({
     getStatusLabel,
     getSourceKindLabel,
     formatDateTime,
+    formatUtcIsoForDateTimeLocal,
   } = helpers;
   const { SOURCE_PLATFORM_FILTERS } = constants;
   const { FIELD_CLASS, BUTTON_PRIMARY, BUTTON_SECONDARY, BUTTON_GHOST } = classes;
@@ -68,7 +73,7 @@ export default function CampaignSection({
         className="2xl:col-span-12"
         eyebrow="Nguồn mới"
         title="Tạo chiến dịch đăng tự động"
-        subtitle="Khai báo fanpage đích, nguồn nội dung và nhịp đăng trong một form gọn, rõ thứ tự để thao tác nhanh trên mọi màn hình."
+        subtitle="Khai báo fanpage đích, nguồn nội dung, ngày giờ bắt đầu và nhịp đăng trong một form gọn để lên lịch rõ ràng hơn."
       >
         <form onSubmit={handleCampaignSubmit} className="grid gap-5 xl:grid-cols-12">
           <label className="space-y-2 xl:col-span-7">
@@ -93,25 +98,41 @@ export default function CampaignSection({
               </button>
             </div>
           </div>
-          <label className="space-y-2 xl:col-span-7">
+          <label className="space-y-2 xl:col-span-5">
             <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Tên chiến dịch</span>
             <input required type="text" className={FIELD_CLASS} placeholder="Ví dụ: Giải trí mỗi ngày" value={formData.name} onChange={(event) => setFormData({ ...formData, name: event.target.value })} />
           </label>
-          <label className="space-y-2 xl:col-span-5">
+          <label className="space-y-2 xl:col-span-3">
             <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Khoảng cách đăng (phút)</span>
             <input required type="number" min="0" className={FIELD_CLASS} value={formData.schedule_interval} onChange={(event) => setFormData({ ...formData, schedule_interval: parseInt(event.target.value, 10) || 0 })} />
+          </label>
+          <label className="space-y-2 xl:col-span-4">
+            <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Bắt đầu từ</span>
+            <input
+              type="datetime-local"
+              step="60"
+              className={FIELD_CLASS}
+              value={formData.schedule_start_at || ''}
+              onChange={(event) => setFormData({ ...formData, schedule_start_at: event.target.value })}
+            />
           </label>
           <label className="space-y-2 xl:col-span-12">
             <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Nguồn nội dung</span>
             <input required type="url" className={FIELD_CLASS} placeholder="https://www.tiktok.com/@... hoặc https://www.youtube.com/shorts/..." value={formData.source_url} onChange={(event) => setFormData({ ...formData, source_url: event.target.value })} />
           </label>
-          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] xl:col-span-12">
+          <div className="grid gap-3 lg:grid-cols-3 xl:col-span-12">
             <div className={MUTED_CARD_CLASS}>
               <div className="flex flex-wrap items-center gap-2">
                 <div className="text-[11px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Nhận diện nguồn</div>
                 <StatusPill tone={sourcePreview.tone}>{sourcePreview.title}</StatusPill>
               </div>
               <div className="mt-3 text-sm leading-7 text-[var(--text-soft)]">{sourcePreview.detail}</div>
+            </div>
+            <div className={cx(MUTED_CARD_CLASS, 'text-sm leading-7 text-[var(--text-soft)]')}>
+              <div className="text-[11px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Lưu ý lịch đăng</div>
+              <div className="mt-3">Nếu chọn <span className="font-medium text-slate-900">Bắt đầu từ</span>, video đầu tiên sẽ bám theo mốc này.</div>
+              <div className="mt-1">Các video tiếp theo sẽ cộng thêm theo <span className="font-medium text-slate-900">Khoảng cách đăng</span>.</div>
+              <div className="mt-1">Nếu bỏ trống ngày giờ, hệ thống sẽ tự nối tiếp theo hàng chờ hiện tại của fanpage.</div>
             </div>
             <div className={cx(MUTED_CARD_CLASS, 'text-sm leading-7 text-[var(--text-soft)]')}>
               <div className="text-[11px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Ví dụ hợp lệ</div>
@@ -202,6 +223,7 @@ export default function CampaignSection({
                   </div>
                   <div className="mt-4 rounded-[20px] border border-slate-200/80 bg-slate-50/70 px-4 py-3 text-sm text-[var(--text-soft)]">
                     {(campaign.video_counts?.total ?? 0)} video • {(campaign.video_counts?.ready ?? 0)} sẵn sàng • {campaign.schedule_interval || 0} phút/lần
+                    {campaign.schedule_start_at ? ` • Bắt đầu ${formatDateTime(campaign.schedule_start_at, { year: 'numeric' })}` : ''}
                   </div>
                   <div className="mt-4 flex justify-start">
                     <DetailToggle expanded={isExpanded} onClick={() => toggleExpandedItem(`campaign:${campaign.id}`)} />
@@ -225,8 +247,50 @@ export default function CampaignSection({
                         <InfoRow label="Sẵn sàng" value={campaign.video_counts?.ready ?? 0} />
                         <InfoRow label="Thất bại" value={campaign.video_counts?.failed ?? 0} />
                         <InfoRow label="Khoảng cách" value={`${campaign.schedule_interval || 0} phút`} />
+                        <InfoRow label="Bắt đầu từ" value={formatDateTime(campaign.schedule_start_at, { year: 'numeric' })} />
                         <InfoRow label="Tự đăng" value={campaign.auto_post ? 'Đang bật' : 'Đang tắt'} />
                         <InfoRow label="Lần sync gần nhất" value={formatDateTime(campaign.last_synced_at)} />
+                      </div>
+                      <div className={cx('mt-4', MUTED_CARD_CLASS)}>
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className="text-[11px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Chỉnh lịch bắt đầu</div>
+                            <div className="mt-2 text-sm leading-7 text-[var(--text-soft)]">
+                              Đổi ngày giờ bắt đầu cho campaign đã tạo. Hệ thống sẽ xếp lại các video chưa đăng của campaign này theo mốc mới.
+                            </div>
+                          </div>
+                          <StatusPill tone="sky">Chỉ áp dụng video chưa đăng</StatusPill>
+                        </div>
+                        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto]">
+                          <label className="space-y-2">
+                            <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Ngày giờ bắt đầu mới</span>
+                            <input
+                              type="datetime-local"
+                              step="60"
+                              className={FIELD_CLASS}
+                              value={campaignScheduleDrafts[campaign.id] ?? formatUtcIsoForDateTimeLocal(campaign.schedule_start_at)}
+                              onChange={(event) => handleCampaignScheduleDraftChange(campaign.id, event.target.value)}
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            className={cx(BUTTON_GHOST, 'self-end')}
+                            onClick={() => handleCampaignScheduleReset(campaign)}
+                          >
+                            Khôi phục
+                          </button>
+                          <button
+                            type="button"
+                            className={cx(BUTTON_SECONDARY, 'self-end')}
+                            onClick={() => handleCampaignScheduleSave(campaign)}
+                            disabled={actionState[`campaign-${campaign.id}-schedule`]}
+                          >
+                            {actionState[`campaign-${campaign.id}-schedule`] ? 'Đang lưu...' : 'Lưu lịch bắt đầu'}
+                          </button>
+                        </div>
+                        <div className="mt-3 text-xs leading-5 text-[var(--text-muted)]">
+                          Để trống ô này rồi bấm lưu nếu muốn bỏ mốc bắt đầu cố định và quay về xếp lịch theo hàng chờ hiện tại của fanpage.
+                        </div>
                       </div>
                       {campaign.last_sync_error ? <div className="mt-4 rounded-[22px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm leading-7 text-rose-700">{campaign.last_sync_error}</div> : null}
                       <div className="mobile-action-stack mt-5 border-t border-slate-200/80 pt-5">

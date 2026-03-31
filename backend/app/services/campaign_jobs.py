@@ -87,23 +87,34 @@ def build_download_prefix(source_platform: str | None) -> str:
     return "video"
 
 
-def build_source_page_publish_time(db: Session, page_id: str | None, schedule_interval: int):
+def build_source_page_publish_time(
+    db: Session,
+    page_id: str | None,
+    schedule_interval: int,
+    schedule_start_at: datetime | None = None,
+    exclude_campaign_id: uuid.UUID | None = None,
+):
     now = utc_now()
-    start_time = now
+    start_time = schedule_start_at if schedule_start_at and schedule_start_at > now else now
 
     if page_id and schedule_interval > 0:
-        last_publish = (
+        query = (
             db.query(func.max(Video.publish_time))
             .join(Campaign)
             .filter(
                 Campaign.target_page_id == page_id,
                 Campaign.status == CampaignStatus.active,
-                Video.status == VideoStatus.ready,
+                Video.status.in_([VideoStatus.ready, VideoStatus.pending, VideoStatus.downloading]),
             )
-            .scalar()
         )
-        if last_publish and last_publish > now:
-            start_time = last_publish + timedelta(minutes=schedule_interval)
+        if exclude_campaign_id:
+            query = query.filter(Campaign.id != exclude_campaign_id)
+
+        last_publish = query.scalar()
+        if last_publish:
+            queue_safe_start = last_publish + timedelta(minutes=schedule_interval)
+            if queue_safe_start > start_time:
+                start_time = queue_safe_start
     return start_time
 
 
@@ -221,6 +232,7 @@ def sync_campaign_content(
             db,
             campaign.target_page_id,
             campaign.schedule_interval or 0,
+            campaign.schedule_start_at,
         )
         added_count = 0
         interrupted_reason = None

@@ -1,8 +1,8 @@
 import pytest
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from app.core.time import utc_now
-from app.models.models import Campaign, CampaignStatus, TaskQueue, Video, VideoStatus
+from app.models.models import Campaign, CampaignStatus, FacebookPage, TaskQueue, Video, VideoStatus
 from app.services.campaign_jobs import sync_campaign_content
 from app.services.source_resolver import SourceResolutionError, resolve_content_source
 from app.services.ytdlp_crawler import extract_source_entries
@@ -90,6 +90,24 @@ def test_create_campaign_detects_youtube_shorts_metadata(client, auth_headers, d
     task = db_session.query(TaskQueue).one()
     assert task.payload["source_platform"] == "youtube"
     assert task.payload["source_kind"] == "youtube_short"
+
+
+def test_create_campaign_persists_schedule_start_at_in_utc(client, auth_headers, db_session):
+    response = client.post(
+        "/campaigns/",
+        headers=auth_headers,
+        json={
+            "name": "Campaign has start time",
+            "source_url": "https://www.tiktok.com/@demo/video/1234567890",
+            "auto_post": False,
+            "schedule_interval": 45,
+            "schedule_start_at": "2026-04-01T09:30:00+07:00",
+        },
+    )
+
+    assert response.status_code == 200
+    campaign = db_session.query(Campaign).one()
+    assert campaign.schedule_start_at == datetime(2026, 4, 1, 2, 30, 0)
 
 
 def test_sync_campaign_backfills_missing_source_metadata(client, auth_headers, db_session):
@@ -279,6 +297,155 @@ def test_sync_campaign_content_uses_normalized_youtube_entries(monkeypatch, db_s
     assert all(video.source_kind == "youtube_short" for video in videos)
     assert all(video.status == VideoStatus.ready for video in videos)
     assert videos[0].file_path.endswith("youtube_short-short-a.mp4")
+
+
+def test_sync_campaign_content_uses_schedule_start_at(monkeypatch, db_session):
+    fixed_now = datetime(2026, 4, 1, 0, 0, 0)
+    start_at = datetime(2026, 4, 1, 9, 15, 0)
+    campaign = Campaign(
+        name="Scheduled start campaign",
+        source_url="https://www.tiktok.com/@demo",
+        source_platform="tiktok",
+        source_kind="tiktok_profile",
+        status=CampaignStatus.active,
+        schedule_interval=20,
+        schedule_start_at=start_at,
+        last_sync_status="idle",
+    )
+    db_session.add(campaign)
+    db_session.commit()
+    db_session.refresh(campaign)
+
+    def fake_extract_source_entries(_url, source_platform, source_kind):
+        assert source_platform == "tiktok"
+        assert source_kind == "tiktok_profile"
+        from app.services.ytdlp_crawler import NormalizedMediaEntry
+
+        return [
+            NormalizedMediaEntry(
+                original_id="video-a",
+                source_video_url="https://www.tiktok.com/@demo/video/video-a",
+                original_caption="Caption A",
+                title="Video A",
+                description="Caption A",
+                source_platform="tiktok",
+                source_kind="tiktok_video",
+            ),
+            NormalizedMediaEntry(
+                original_id="video-b",
+                source_video_url="https://www.tiktok.com/@demo/video/video-b",
+                original_caption="Caption B",
+                title="Video B",
+                description="Caption B",
+                source_platform="tiktok",
+                source_kind="tiktok_video",
+            ),
+        ]
+
+    def fake_download_video(url, filename_prefix):
+        return (f"/tmp/{filename_prefix}-{url.rsplit('/', 1)[-1]}.mp4", "download-id")
+
+    monkeypatch.setattr("app.services.campaign_jobs.utc_now", lambda: fixed_now)
+    monkeypatch.setattr("app.services.campaign_jobs.extract_source_entries", fake_extract_source_entries)
+    monkeypatch.setattr("app.services.campaign_jobs.download_video", fake_download_video)
+
+    result = sync_campaign_content(
+        str(campaign.id),
+        campaign.source_url,
+        allow_paused=False,
+        source_platform=campaign.source_platform,
+        source_kind=campaign.source_kind,
+    )
+
+    assert result["ok"] is True
+    videos = db_session.query(Video).filter(Video.campaign_id == campaign.id).order_by(Video.publish_time.asc()).all()
+    assert len(videos) == 2
+    assert videos[0].publish_time == start_at
+    assert videos[1].publish_time == start_at + timedelta(minutes=20)
+
+
+def test_update_campaign_schedule_reschedules_waiting_videos(client, auth_headers, db_session, monkeypatch):
+    fixed_now = datetime(2026, 4, 1, 0, 0, 0)
+    monkeypatch.setattr("app.services.campaign_jobs.utc_now", lambda: fixed_now)
+
+    page = FacebookPage(
+        page_id="page-1",
+        page_name="Demo page",
+        long_lived_access_token="encrypted-token",
+    )
+    db_session.add(page)
+
+    other_campaign = Campaign(
+        name="Existing queue campaign",
+        source_url="https://www.tiktok.com/@other",
+        source_platform="tiktok",
+        source_kind="tiktok_profile",
+        status=CampaignStatus.active,
+        target_page_id="page-1",
+        schedule_interval=15,
+    )
+    campaign = Campaign(
+        name="Editable schedule campaign",
+        source_url="https://www.tiktok.com/@demo",
+        source_platform="tiktok",
+        source_kind="tiktok_profile",
+        status=CampaignStatus.active,
+        target_page_id="page-1",
+        schedule_interval=15,
+        schedule_start_at=datetime(2026, 4, 1, 8, 0, 0),
+    )
+    db_session.add_all([other_campaign, campaign])
+    db_session.commit()
+    db_session.refresh(other_campaign)
+    db_session.refresh(campaign)
+
+    db_session.add(
+        Video(
+            campaign_id=other_campaign.id,
+            original_id="other-ready",
+            source_video_url="https://www.tiktok.com/@other/video/other-ready",
+            original_caption="Other ready",
+            status=VideoStatus.ready,
+            publish_time=datetime(2026, 4, 1, 9, 0, 0),
+        )
+    )
+    db_session.add_all(
+        [
+            Video(
+                campaign_id=campaign.id,
+                original_id="video-a",
+                source_video_url="https://www.tiktok.com/@demo/video/video-a",
+                original_caption="Caption A",
+                status=VideoStatus.ready,
+                publish_time=datetime(2026, 4, 1, 8, 0, 0),
+            ),
+            Video(
+                campaign_id=campaign.id,
+                original_id="video-b",
+                source_video_url="https://www.tiktok.com/@demo/video/video-b",
+                original_caption="Caption B",
+                status=VideoStatus.pending,
+                publish_time=datetime(2026, 4, 1, 8, 15, 0),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = client.patch(
+        f"/campaigns/{campaign.id}/schedule",
+        headers=auth_headers,
+        json={"schedule_start_at": "2026-04-01T08:30:00+07:00"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["rescheduled_videos"] == 2
+    assert payload["campaign"]["schedule_start_at"] == "2026-04-01T01:30:00"
+
+    db_session.refresh(campaign)
+    videos = db_session.query(Video).filter(Video.campaign_id == campaign.id).order_by(Video.publish_time.asc()).all()
+    assert videos[0].publish_time == datetime(2026, 4, 1, 9, 15, 0)
+    assert videos[1].publish_time == datetime(2026, 4, 1, 9, 30, 0)
 
 
 def test_sync_campaign_content_fails_when_youtube_source_has_no_valid_shorts(monkeypatch, db_session):

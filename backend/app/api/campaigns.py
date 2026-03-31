@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import datetime, time, timedelta
+from datetime import UTC, datetime, time, timedelta
 import os
 import uuid
 
@@ -13,6 +13,7 @@ from app.core.time import utc_now, utc_today
 from app.models.models import Campaign, CampaignStatus, FacebookPage, Video, VideoStatus
 from app.services.ai_generator import generate_caption
 from app.services.observability import record_event
+from app.services.campaign_jobs import build_source_page_publish_time
 from app.services.source_resolver import SourceResolutionError, resolve_content_source
 from app.services.task_queue import (
     TASK_TYPE_CAMPAIGN_SYNC,
@@ -29,6 +30,11 @@ class CampaignCreate(BaseModel):
     auto_post: bool = False
     target_page_id: str | None = None
     schedule_interval: int = Field(default=0, ge=0)
+    schedule_start_at: datetime | None = None
+
+
+class CampaignScheduleUpdate(BaseModel):
+    schedule_start_at: datetime | None = None
 
 
 class VideoCaptionUpdate(BaseModel):
@@ -37,6 +43,14 @@ class VideoCaptionUpdate(BaseModel):
 
 def serialize_datetime(value):
     return value.isoformat() if value else None
+
+
+def normalize_utc_datetime(value: datetime | None) -> datetime | None:
+    if not value:
+        return None
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(UTC).replace(tzinfo=None)
 
 
 def normalize_status(value):
@@ -93,6 +107,7 @@ def serialize_campaign(campaign: Campaign, summary_map, page_name_map):
         "target_page_id": campaign.target_page_id,
         "target_page_name": page_name_map.get(campaign.target_page_id),
         "schedule_interval": campaign.schedule_interval,
+        "schedule_start_at": serialize_datetime(campaign.schedule_start_at),
         "last_synced_at": serialize_datetime(campaign.last_synced_at),
         "last_sync_status": campaign.last_sync_status or "idle",
         "last_sync_error": campaign.last_sync_error,
@@ -245,6 +260,40 @@ def get_video_or_404(db: Session, video_id: str):
     return video
 
 
+def list_reschedulable_campaign_videos(db: Session, campaign_id):
+    videos = (
+        db.query(Video)
+        .filter(
+            Video.campaign_id == campaign_id,
+            Video.status.in_([VideoStatus.pending, VideoStatus.downloading, VideoStatus.ready]),
+        )
+        .all()
+    )
+    return sorted(
+        videos,
+        key=lambda video: (
+            video.publish_time is None,
+            video.publish_time or datetime.max,
+            video.created_at or datetime.min,
+            str(video.id),
+        ),
+    )
+
+
+def apply_campaign_schedule(db: Session, campaign: Campaign):
+    videos = list_reschedulable_campaign_videos(db, campaign.id)
+    start_time = build_source_page_publish_time(
+        db,
+        campaign.target_page_id,
+        campaign.schedule_interval or 0,
+        campaign.schedule_start_at,
+        exclude_campaign_id=campaign.id,
+    )
+    for index, video in enumerate(videos):
+        video.publish_time = start_time + timedelta(minutes=index * (campaign.schedule_interval or 0))
+    return videos, start_time if videos else None
+
+
 def safe_remove_file(path: str | None):
     if path and os.path.exists(path):
         try:
@@ -289,6 +338,7 @@ def create_campaign(campaign_in: CampaignCreate, db: Session = Depends(get_db)):
         auto_post=campaign_in.auto_post,
         target_page_id=campaign_in.target_page_id,
         schedule_interval=campaign_in.schedule_interval,
+        schedule_start_at=normalize_utc_datetime(campaign_in.schedule_start_at),
         status=CampaignStatus.active,
         last_sync_status="queued",
     )
@@ -331,6 +381,49 @@ def get_campaigns(db: Session = Depends(get_db)):
     page_name_map = build_page_name_map(db)
     summary_map = build_campaign_summary_map(db)
     return [serialize_campaign(campaign, summary_map, page_name_map) for campaign in campaigns]
+
+
+@router.patch("/{campaign_id}/schedule")
+def update_campaign_schedule(campaign_id: str, payload: CampaignScheduleUpdate, db: Session = Depends(get_db)):
+    campaign = get_campaign_or_404(db, campaign_id)
+    campaign.schedule_start_at = normalize_utc_datetime(payload.schedule_start_at)
+    rescheduled_videos, first_publish_time = apply_campaign_schedule(db, campaign)
+    db.commit()
+    db.refresh(campaign)
+
+    record_event(
+        "campaign",
+        "info",
+        "Đã cập nhật mốc bắt đầu cho chiến dịch.",
+        db=db,
+        details={
+            "campaign_id": str(campaign.id),
+            "campaign_name": campaign.name,
+            "schedule_start_at": serialize_datetime(campaign.schedule_start_at),
+            "rescheduled_videos": len(rescheduled_videos),
+            "first_publish_time": serialize_datetime(first_publish_time),
+        },
+    )
+
+    page_name_map = build_page_name_map(db)
+    summary_map = build_campaign_summary_map(db)
+    if campaign.schedule_start_at:
+        message = (
+            f"Đã cập nhật ngày giờ bắt đầu cho chiến dịch '{campaign.name}'"
+            f" và xếp lại {len(rescheduled_videos)} video chờ."
+        )
+    else:
+        message = (
+            f"Đã bỏ mốc bắt đầu cố định cho chiến dịch '{campaign.name}'"
+            f" và xếp lại {len(rescheduled_videos)} video chờ."
+        )
+
+    return {
+        "message": message,
+        "campaign": serialize_campaign(campaign, summary_map, page_name_map),
+        "rescheduled_videos": len(rescheduled_videos),
+        "first_publish_time": serialize_datetime(first_publish_time),
+    }
 
 
 @router.post("/{campaign_id}/sync")

@@ -216,6 +216,21 @@ function formatDateTime(isoString, options = {}) {
   });
 }
 
+function normalizeLocalDateTimeToUtcIso(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+}
+
+function formatUtcIsoForDateTimeLocal(isoString) {
+  if (!isoString) return '';
+  const date = new Date(`${isoString}${isoString.endsWith('Z') ? '' : 'Z'}`);
+  if (Number.isNaN(date.getTime())) return '';
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 function formatRelTime(isoString) {
   if (!isoString) return 'Chưa có';
   const date = new Date(`${isoString}${isoString.endsWith('Z') ? '' : 'Z'}`);
@@ -492,8 +507,16 @@ function App() {
   const [selectedConversation, setSelectedConversation] = useState(null);
   const [selectedConversationLogs, setSelectedConversationLogs] = useState([]);
   const [systemInfo, setSystemInfo] = useState(null);
-  const [formData, setFormData] = useState({ name: '', source_url: '', auto_post: false, target_page_id: '', schedule_interval: 30 });
+  const [formData, setFormData] = useState({
+    name: '',
+    source_url: '',
+    auto_post: false,
+    target_page_id: '',
+    schedule_interval: 30,
+    schedule_start_at: '',
+  });
   const [fbPages, setFbPages] = useState([]);
+  const [campaignScheduleDrafts, setCampaignScheduleDrafts] = useState({});
   const [fbForm, setFbForm] = useState({ page_id: '', page_name: '', long_lived_access_token: '' });
   const [fbImportToken, setFbImportToken] = useState('');
   const [discoveredFbPages, setDiscoveredFbPages] = useState([]);
@@ -815,6 +838,16 @@ function App() {
     if (!exists) setFilters((current) => ({ ...current, campaignId: 'all' }));
   }, [campaigns, filters.campaignId]);
 
+  useEffect(() => {
+    setCampaignScheduleDrafts((current) => {
+      const next = {};
+      campaigns.forEach((campaign) => {
+        next[campaign.id] = current[campaign.id] ?? formatUtcIsoForDateTimeLocal(campaign.schedule_start_at);
+      });
+      return next;
+    });
+  }, [campaigns]);
+
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     if (!token || currentUser?.role !== 'admin') {
@@ -944,13 +977,28 @@ function App() {
       showNotice('error', 'Vui lòng chọn trang đích.');
       return;
     }
+    const scheduleStartAt = normalizeLocalDateTimeToUtcIso(formData.schedule_start_at);
+    if (formData.schedule_start_at && !scheduleStartAt) {
+      showNotice('error', 'Ngày giờ bắt đầu chưa hợp lệ.');
+      return;
+    }
     await runAction('create-campaign', async () => {
+      const payloadToCreate = {
+        ...formData,
+        schedule_start_at: scheduleStartAt,
+      };
       const payload = await requestJson(`${API_URL}/campaigns/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payloadToCreate),
       });
-      setFormData((current) => ({ ...current, name: '', source_url: '', auto_post: false }));
+      setFormData((current) => ({
+        ...current,
+        name: '',
+        source_url: '',
+        auto_post: false,
+        schedule_start_at: '',
+      }));
       return payload;
     });
   };
@@ -1378,6 +1426,51 @@ function App() {
     await runAction(`campaign-${campaign.id}-${action}`, () => requestJson(config.path, { method: config.method }));
   };
 
+  const handleCampaignScheduleDraftChange = (campaignId, value) => {
+    setCampaignScheduleDrafts((current) => ({ ...current, [campaignId]: value }));
+  };
+
+  const handleCampaignScheduleReset = (campaign) => {
+    setCampaignScheduleDrafts((current) => ({
+      ...current,
+      [campaign.id]: formatUtcIsoForDateTimeLocal(campaign.schedule_start_at),
+    }));
+  };
+
+  const handleCampaignScheduleSave = async (campaign) => {
+    const draftValue = campaignScheduleDrafts[campaign.id] || '';
+    const scheduleStartAt = normalizeLocalDateTimeToUtcIso(draftValue);
+    if (draftValue && !scheduleStartAt) {
+      showNotice('error', 'Ngày giờ bắt đầu của chiến dịch chưa hợp lệ.');
+      return;
+    }
+
+    const confirmed = await confirmAction({
+      title: 'Cập nhật lịch bắt đầu campaign',
+      description: draftValue
+        ? `Hệ thống sẽ đổi ngày giờ bắt đầu của "${campaign.name}" và xếp lại các video chưa đăng theo lịch mới.`
+        : `Hệ thống sẽ bỏ mốc bắt đầu cố định của "${campaign.name}" và xếp lại các video chưa đăng theo hàng chờ hiện tại.`,
+      confirmLabel: 'Lưu lịch mới',
+      tone: 'sky',
+    });
+    if (!confirmed) return;
+
+    const payload = await runAction(
+      `campaign-${campaign.id}-schedule`,
+      () => requestJson(`${API_URL}/campaigns/${campaign.id}/schedule`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ schedule_start_at: scheduleStartAt }),
+      }),
+    );
+    if (payload?.campaign) {
+      setCampaignScheduleDrafts((current) => ({
+        ...current,
+        [campaign.id]: formatUtcIsoForDateTimeLocal(payload.campaign.schedule_start_at),
+      }));
+    }
+  };
+
   const handleCopy = async (text, label) => {
     if (!text) {
       showNotice('error', `${label} hiện chưa có dữ liệu để sao chép.`);
@@ -1615,6 +1708,7 @@ function App() {
       state={{
         formData,
         fbPages,
+        campaignScheduleDrafts,
         actionState,
         campaignSourceFilter,
         campaigns,
@@ -1629,6 +1723,9 @@ function App() {
         setCampaignSourceFilter,
         toggleExpandedItem,
         handleCampaignAction,
+        handleCampaignScheduleDraftChange,
+        handleCampaignScheduleReset,
+        handleCampaignScheduleSave,
       }}
       helpers={{
         detectSourcePreview,
@@ -1638,6 +1735,7 @@ function App() {
         getStatusLabel,
         getSourceKindLabel,
         formatDateTime,
+        formatUtcIsoForDateTimeLocal,
       }}
       constants={{
         SOURCE_PLATFORM_FILTERS,

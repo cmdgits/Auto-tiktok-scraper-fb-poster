@@ -61,6 +61,7 @@ class Campaign(Base):
     auto_post = Column(Boolean, default=False)
     target_page_id = Column(String, nullable=True)
     schedule_interval = Column(Integer, default=0)
+    schedule_start_at = Column(DateTime, nullable=True)
     last_synced_at = Column(DateTime, nullable=True)
     last_sync_status = Column(String, default="idle")
     last_sync_error = Column(String, nullable=True)
