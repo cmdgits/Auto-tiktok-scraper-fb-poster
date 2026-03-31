@@ -15,12 +15,13 @@ from app.core.database import get_db
 from app.core.time import utc_now
 from app.models.models import ConversationStatus, FacebookPage, InboxConversation, InboxMessageLog, InteractionLog, InteractionStatus, User
 from app.services.accounts import serialize_user
+from app.services.ai_generator import generate_reply
 from app.services.inbox_memory import get_or_create_inbox_conversation, serialize_conversation, touch_conversation_with_customer_message
 from app.services.observability import record_event
 from app.services.runtime_settings import resolve_runtime_value
 from app.services.security import verify_facebook_signature
 from app.services.task_queue import TASK_TYPE_COMMENT_REPLY, TASK_TYPE_MESSAGE_REPLY, enqueue_task
-from app.services.fb_graph import send_page_message
+from app.services.fb_graph import delete_comment, lookup_profile_name, reply_to_comment, send_page_message
 from app.services.security import decrypt_secret
 
 router = APIRouter(prefix="/webhooks", tags=["Webhook"])
@@ -44,15 +45,30 @@ class ConversationReplyRequest(BaseModel):
     mark_resolved: bool = False
 
 
-def serialize_interaction_log(log: InteractionLog) -> dict:
+class CommentInteractionUpdateRequest(BaseModel):
+    reply_mode: str = Field(pattern=r"^(ai|operator)$")
+
+
+class CommentReplyRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=2000)
+
+
+def serialize_interaction_log(log: InteractionLog, reply_author: User | None = None) -> dict:
     return {
         "id": str(log.id),
         "page_id": log.page_id,
         "post_id": log.post_id,
         "comment_id": log.comment_id,
         "user_id": log.user_id,
+        "user_name": log.user_name,
         "user_message": log.user_message,
+        "reply_mode": log.reply_mode or "ai",
         "ai_reply": log.ai_reply,
+        "facebook_reply_comment_id": log.facebook_reply_comment_id,
+        "reply_source": log.reply_source or ("ai" if log.ai_reply and log.status == InteractionStatus.replied else ""),
+        "reply_author_user_id": str(log.reply_author_user_id) if log.reply_author_user_id else None,
+        "reply_author": _serialize_compact_user(reply_author),
+        "last_error": log.last_error,
         "status": log.status.value if hasattr(log.status, "value") else log.status,
         "created_at": log.created_at.isoformat() if log.created_at else None,
         "updated_at": log.updated_at.isoformat() if log.updated_at else None,
@@ -104,6 +120,7 @@ def serialize_message_log(
         "conversation_id": str(log.conversation_id) if log.conversation_id else None,
         "facebook_message_id": log.facebook_message_id,
         "sender_id": log.sender_id,
+        "sender_name": log.sender_name or (conversation.sender_name if conversation else None),
         "recipient_id": log.recipient_id,
         "user_message": log.user_message,
         "ai_reply": log.ai_reply,
@@ -221,6 +238,18 @@ def _get_conversation_rows(
     return items
 
 
+def _get_interaction_log_or_404(db: Session, interaction_log_id: str) -> InteractionLog:
+    try:
+        log_uuid = uuid.UUID(interaction_log_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Mã bình luận không hợp lệ.") from exc
+
+    log = db.query(InteractionLog).filter(InteractionLog.id == log_uuid).first()
+    if not log:
+        raise HTTPException(status_code=404, detail="Không tìm thấy bình luận cần xử lý.")
+    return log
+
+
 def _set_conversation_status(
     conversation: InboxConversation,
     *,
@@ -305,11 +334,31 @@ def _get_message_cooldown_reason(db: Session, page_id: str, sender_id: str, cool
     return None
 
 
+def _resolve_contact_name(
+    page_config: FacebookPage | None,
+    contact_id: str | None,
+    *,
+    fallback_name: str | None = None,
+) -> str | None:
+    preferred = (fallback_name or "").strip()
+    if preferred:
+        return preferred
+    if not page_config or not page_config.long_lived_access_token or not contact_id:
+        return None
+    try:
+        access_token = decrypt_secret(page_config.long_lived_access_token)
+    except Exception:
+        return None
+    resolved_name = lookup_profile_name(contact_id, access_token)
+    return (resolved_name or "").strip() or None
+
+
 def _record_comment_event(db: Session, page_id: str, value: dict):
     comment_id = value.get("comment_id")
     message = value.get("message")
     post_id = value.get("post_id")
     sender_id = value.get("from", {}).get("id")
+    sender_name = value.get("from", {}).get("name")
 
     if sender_id == page_id:
         return
@@ -330,17 +379,20 @@ def _record_comment_event(db: Session, page_id: str, value: dict):
         return
 
     comment_auto_reply_enabled = page_config.comment_auto_reply_enabled is not False
+    resolved_user_name = _resolve_contact_name(page_config, sender_id, fallback_name=sender_name)
 
     log = InteractionLog(
         page_id=page_id,
         post_id=post_id,
         comment_id=comment_id,
         user_id=sender_id,
+        user_name=resolved_user_name,
         user_message=message,
-        status=InteractionStatus.pending if comment_auto_reply_enabled else InteractionStatus.ignored,
+        reply_mode="ai" if comment_auto_reply_enabled else "operator",
+        status=InteractionStatus.pending,
     )
     if not comment_auto_reply_enabled:
-        log.ai_reply = "Tự động phản hồi bình luận đang tắt cho fanpage này."
+        log.ai_reply = None
     db.add(log)
     db.commit()
     db.refresh(log)
@@ -398,10 +450,13 @@ def _record_message_event(db: Session, page_id: str, event: dict):
         )
         return
 
+    sender_name = _resolve_contact_name(page_config, sender_id)
+
     conversation = get_or_create_inbox_conversation(
         db,
         page_id=page_id,
         sender_id=sender_id,
+        sender_name=sender_name,
         recipient_id=recipient_id,
     )
     touch_conversation_with_customer_message(
@@ -446,6 +501,7 @@ def _record_message_event(db: Session, page_id: str, event: dict):
         conversation_id=conversation.id,
         facebook_message_id=message_id,
         sender_id=sender_id,
+        sender_name=sender_name,
         recipient_id=recipient_id,
         user_message=text,
         status=InteractionStatus.pending if should_auto_reply else InteractionStatus.ignored,
@@ -544,7 +600,176 @@ def get_interaction_logs(
     _: User = Depends(require_authenticated_user),
 ):
     logs = db.query(InteractionLog).order_by(InteractionLog.created_at.desc()).limit(50).all()
-    return [serialize_interaction_log(log) for log in logs]
+    reply_user_map = _load_user_map(db, [log.reply_author_user_id for log in logs])
+    return [serialize_interaction_log(log, reply_author=reply_user_map.get(log.reply_author_user_id)) for log in logs]
+
+
+@router.patch("/comments/{interaction_log_id}")
+def update_comment_interaction(
+    interaction_log_id: str,
+    payload: CommentInteractionUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_authenticated_user),
+):
+    log = _get_interaction_log_or_404(db, interaction_log_id)
+    if log.status == InteractionStatus.replied:
+        raise HTTPException(status_code=400, detail="Bình luận này đã được phản hồi rồi.")
+
+    log.reply_mode = payload.reply_mode
+    log.status = InteractionStatus.pending
+    log.last_error = None
+    if payload.reply_mode == "ai":
+        log.reply_source = None
+        log.reply_author_user_id = None
+        log.ai_reply = None
+        task = enqueue_task(
+            db,
+            task_type=TASK_TYPE_COMMENT_REPLY,
+            entity_type="interaction_log",
+            entity_id=str(log.id),
+            payload={"interaction_log_id": str(log.id)},
+            priority=10,
+            max_attempts=3,
+        )
+        message = "Đã chuyển bình luận sang AI phản hồi."
+    else:
+        task = None
+        message = "Đã chuyển bình luận sang operator phản hồi."
+
+    db.commit()
+    db.refresh(log)
+
+    record_event(
+        "webhook",
+        "info",
+        "Đã cập nhật chế độ phản hồi bình luận.",
+        db=db,
+        actor_user_id=str(current_user.id),
+        details={
+            "interaction_log_id": str(log.id),
+            "comment_id": log.comment_id,
+            "page_id": log.page_id,
+            "reply_mode": log.reply_mode,
+            "task_id": str(task.id) if task else None,
+        },
+    )
+
+    reply_user_map = _load_user_map(db, [log.reply_author_user_id])
+    return {
+        "message": message,
+        "log": serialize_interaction_log(log, reply_author=reply_user_map.get(log.reply_author_user_id)),
+    }
+
+
+@router.post("/comments/{interaction_log_id}/draft")
+def generate_comment_reply_draft(
+    interaction_log_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_authenticated_user),
+):
+    log = _get_interaction_log_or_404(db, interaction_log_id)
+    if log.status == InteractionStatus.replied:
+        raise HTTPException(status_code=400, detail="BÃ¬nh luáº­n nÃ y Ä‘Ã£ Ä‘Æ°á»£c pháº£n há»“i rá»“i.")
+
+    page_config = db.query(FacebookPage).filter(FacebookPage.page_id == log.page_id).first()
+    prompt_override = page_config.comment_ai_prompt if page_config else None
+    draft_text = generate_reply(
+        log.user_message,
+        channel="comment",
+        prompt_override=prompt_override,
+    ).strip()
+    if not draft_text:
+        raise HTTPException(status_code=502, detail="KhÃ´ng táº¡o Ä‘Æ°á»£c gá»£i Ã½ AI cho bÃ¬nh luáº­n nÃ y.")
+
+    log.reply_mode = "operator"
+    log.reply_source = None
+    log.reply_author_user_id = None
+    log.facebook_reply_comment_id = None
+    log.ai_reply = draft_text
+    log.status = InteractionStatus.pending
+    log.last_error = None
+    db.commit()
+    db.refresh(log)
+
+    record_event(
+        "webhook",
+        "info",
+        "ÄÃ£ táº¡o gá»£i Ã½ AI cho operator chá»‰nh sá»­a bÃ¬nh luáº­n.",
+        db=db,
+        actor_user_id=str(current_user.id),
+        details={"interaction_log_id": str(log.id), "comment_id": log.comment_id, "page_id": log.page_id},
+    )
+
+    return {
+        "message": "ÄÃ£ táº¡o gá»£i Ã½ AI. Báº¡n cÃ³ thá»ƒ chá»‰nh sá»­a ná»™i dung rá»“i gá»­i thá»§ cÃ´ng.",
+        "log": serialize_interaction_log(log),
+    }
+
+
+@router.post("/comments/{interaction_log_id}/reply")
+def send_manual_comment_reply(
+    interaction_log_id: str,
+    payload: CommentReplyRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_authenticated_user),
+):
+    log = _get_interaction_log_or_404(db, interaction_log_id)
+
+    page_config = db.query(FacebookPage).filter(FacebookPage.page_id == log.page_id).first()
+    if not page_config or not page_config.long_lived_access_token:
+        raise HTTPException(status_code=400, detail="Trang Facebook chưa có Page Access Token hợp lệ.")
+
+    access_token = decrypt_secret(page_config.long_lived_access_token)
+    message_text = payload.message.strip()
+    if not message_text:
+        raise HTTPException(status_code=400, detail="Nội dung phản hồi không được để trống.")
+
+    is_replacing_reply = log.status == InteractionStatus.replied
+    if is_replacing_reply:
+        if not log.facebook_reply_comment_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Không thể thay thế phản hồi đã gửi vì thiếu ID của reply comment. Hãy xóa tay trên Facebook rồi gửi lại.",
+            )
+        delete_response = delete_comment(log.facebook_reply_comment_id, access_token)
+        if not delete_response or delete_response.get("error"):
+            raise HTTPException(
+                status_code=502,
+                detail=delete_response.get("error") if isinstance(delete_response, dict) else "Không thể xóa phản hồi cũ trên Facebook.",
+            )
+
+    response = reply_to_comment(log.comment_id, message_text, access_token)
+    if not response or response.get("error"):
+        log.status = InteractionStatus.failed
+        log.facebook_reply_comment_id = None
+        log.last_error = response.get("error") if isinstance(response, dict) else "Không thể phản hồi bình luận."
+        db.commit()
+        raise HTTPException(status_code=502, detail=log.last_error or "Không thể phản hồi bình luận.")
+
+    log.reply_mode = "operator"
+    log.reply_source = "operator"
+    log.reply_author_user_id = current_user.id
+    log.ai_reply = message_text
+    log.facebook_reply_comment_id = response.get("id") if isinstance(response, dict) else None
+    log.status = InteractionStatus.replied
+    log.last_error = None
+    db.commit()
+    db.refresh(log)
+
+    record_event(
+        "webhook",
+        "info",
+        "Operator đã phản hồi bình luận thủ công.",
+        db=db,
+        actor_user_id=str(current_user.id),
+        details={"interaction_log_id": str(log.id), "comment_id": log.comment_id, "page_id": log.page_id},
+    )
+
+    reply_user_map = _load_user_map(db, [log.reply_author_user_id])
+    return {
+        "message": "Đã thay thế phản hồi cũ trên Facebook." if is_replacing_reply else "Đã gửi phản hồi thủ công cho bình luận.",
+        "log": serialize_interaction_log(log, reply_author=reply_user_map.get(log.reply_author_user_id)),
+    }
 
 
 @router.get("/messages")

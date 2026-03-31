@@ -115,6 +115,19 @@ function extractRuntimeForm(payload) {
   };
 }
 
+function matchesEngagementFilter(log, filter) {
+  switch (filter) {
+    case 'ai_replied':
+      return log.reply_source === 'ai';
+    case 'operator_replied':
+      return log.reply_source === 'operator';
+    case 'ai_failed':
+      return log.status === 'failed' && ((log.reply_mode || 'ai') === 'ai' || log.reply_source === 'ai');
+    default:
+      return true;
+  }
+}
+
 const STATUS_FILTERS = [
   { value: 'all', label: 'Tất cả trạng thái' },
   { value: 'pending', label: 'Đang xử lý' },
@@ -550,6 +563,7 @@ function App() {
   const [runtimeForm, setRuntimeForm] = useState(DEFAULT_RUNTIME_FORM);
   const [tunnelVerification, setTunnelVerification] = useState(null);
   const [replyAutomationDrafts, setReplyAutomationDrafts] = useState({});
+  const [commentReplyDrafts, setCommentReplyDrafts] = useState({});
   const [userForm, setUserForm] = useState({ username: '', display_name: '', password: '', role: 'operator' });
   const [passwordForm, setPasswordForm] = useState({ current_password: '', new_password: '' });
   const [activeSection, setActiveSection] = useState(localStorage.getItem('dashboard-active-section') || 'overview');
@@ -561,6 +575,7 @@ function App() {
   const [showAllMetrics, setShowAllMetrics] = useState(false);
   const [overviewSourceFilter, setOverviewSourceFilter] = useState('all');
   const [engagementPage, setEngagementPage] = useState(1);
+  const [engagementFilter, setEngagementFilter] = useState('all');
   const [conversationStatusFilter, setConversationStatusFilter] = useState('all');
   const [manualReplyDraft, setManualReplyDraft] = useState('');
   const [conversationNoteDraft, setConversationNoteDraft] = useState('');
@@ -630,8 +645,9 @@ function App() {
     security: users.length || (currentUser ? 1 : 0),
   };
   const sortedInteractions = [...interactions].sort((left, right) => new Date(right.created_at || 0).getTime() - new Date(left.created_at || 0).getTime());
-  const totalEngagementPages = Math.max(1, Math.ceil(sortedInteractions.length / ENGAGEMENT_PAGE_SIZE));
-  const pagedInteractions = sortedInteractions.slice((engagementPage - 1) * ENGAGEMENT_PAGE_SIZE, engagementPage * ENGAGEMENT_PAGE_SIZE);
+  const filteredInteractions = sortedInteractions.filter((log) => matchesEngagementFilter(log, engagementFilter));
+  const totalEngagementPages = Math.max(1, Math.ceil(filteredInteractions.length / ENGAGEMENT_PAGE_SIZE));
+  const pagedInteractions = filteredInteractions.slice((engagementPage - 1) * ENGAGEMENT_PAGE_SIZE, engagementPage * ENGAGEMENT_PAGE_SIZE);
   const totalWorkerPages = Math.max(1, Math.ceil(workers.length / WORKER_PAGE_SIZE));
   const pagedWorkers = workers.slice((workerPage - 1) * WORKER_PAGE_SIZE, workerPage * WORKER_PAGE_SIZE);
   const totalTaskPages = Math.max(1, Math.ceil(tasks.length / TASK_PAGE_SIZE));
@@ -848,6 +864,33 @@ function App() {
     });
   }, [campaigns]);
 
+  useEffect(() => {
+    setCommentReplyDrafts((current) => {
+      const next = { ...current };
+      const interactionIds = new Set(interactions.map((log) => log.id));
+      let changed = false;
+
+      Object.keys(next).forEach((logId) => {
+        if (!interactionIds.has(logId)) {
+          delete next[logId];
+          changed = true;
+        }
+      });
+
+      interactions.forEach((log) => {
+        if (!(log.id in next)) {
+          const shouldSeedDraft = log.reply_mode === 'operator'
+            || log.status === 'replied'
+            || (log.status === 'failed' && !!log.ai_reply);
+          next[log.id] = shouldSeedDraft ? (log.ai_reply || '') : '';
+          changed = true;
+        }
+      });
+
+      return changed ? next : current;
+    });
+  }, [interactions]);
+
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     if (!token || currentUser?.role !== 'admin') {
@@ -882,6 +925,10 @@ function App() {
       setEngagementPage(totalEngagementPages);
     }
   }, [engagementPage, totalEngagementPages]);
+
+  useEffect(() => {
+    setEngagementPage(1);
+  }, [engagementFilter]);
 
   useEffect(() => {
     if (workerPage > totalWorkerPages) {
@@ -1407,6 +1454,62 @@ function App() {
     if (payload?.video) setCaptionDrafts((current) => ({ ...current, [videoId]: payload.video.ai_caption || '' }));
   };
 
+  const handleCommentReplyDraftChange = (logId, value) => {
+    setCommentReplyDrafts((current) => ({ ...current, [logId]: value }));
+  };
+
+  const handleCommentReplyModeChange = async (log, replyMode) => {
+    if (!log?.id || log.status === 'replied' || log.reply_mode === replyMode) return;
+
+    const payload = await runAction(`comment-mode-${log.id}`, () => requestJson(`${API_URL}/webhooks/comments/${log.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reply_mode: replyMode }),
+    }));
+
+    if (payload?.log && replyMode === 'operator') {
+      setCommentReplyDrafts((current) => ({
+        ...current,
+        [log.id]: current[log.id] ?? '',
+      }));
+    }
+  };
+
+  const handleGenerateCommentAiDraft = async (log) => {
+    if (!log?.id || log.status === 'replied') return;
+
+    const payload = await runAction(`comment-draft-${log.id}`, () => requestJson(`${API_URL}/webhooks/comments/${log.id}/draft`, {
+      method: 'POST',
+    }));
+
+    if (payload?.log) {
+      setCommentReplyDrafts((current) => ({
+        ...current,
+        [log.id]: payload.log.ai_reply || '',
+      }));
+    }
+  };
+
+  const handleCommentManualReply = async (log) => {
+    if (!log?.id) return;
+
+    const message = (commentReplyDrafts[log.id] || '').trim();
+    if (message.length < 2) {
+      showNotice('error', 'Nội dung phản hồi bình luận cần ít nhất 2 ký tự.');
+      return;
+    }
+
+    const payload = await runAction(`comment-reply-${log.id}`, () => requestJson(`${API_URL}/webhooks/comments/${log.id}/reply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message }),
+    }));
+
+    if (payload?.log) {
+      setCommentReplyDrafts((current) => ({ ...current, [log.id]: payload.log.ai_reply || message }));
+    }
+  };
+
   const handleCampaignAction = async (campaign, action) => {
     if (action === 'delete') {
       const confirmed = await confirmAction({
@@ -1799,22 +1902,37 @@ function App() {
       state={{
         systemInfo,
         interactions,
+        filteredInteractions,
         engagementPage,
+        engagementFilter,
         totalEngagementPages,
         pagedInteractions,
         stats,
         fbPages,
         expandedItems,
+        actionState,
+        commentReplyDrafts,
       }}
       actions={{
         setEngagementPage,
+        setEngagementFilter,
         toggleExpandedItem,
+        handleCommentReplyModeChange,
+        handleGenerateCommentAiDraft,
+        handleCommentReplyDraftChange,
+        handleCommentManualReply,
       }}
       helpers={{
         formatDateTime,
         summarizeText,
         getStatusClasses,
         getStatusLabel,
+      }}
+      classes={{
+        FIELD_CLASS,
+        BUTTON_PRIMARY,
+        BUTTON_SECONDARY,
+        BUTTON_GHOST,
       }}
     />
   );

@@ -16,6 +16,7 @@ def get_or_create_inbox_conversation(
     *,
     page_id: str,
     sender_id: str,
+    sender_name: str | None = None,
     recipient_id: str | None = None,
 ) -> InboxConversation:
     conversation = (
@@ -27,8 +28,11 @@ def get_or_create_inbox_conversation(
         .first()
     )
     if conversation:
+        if sender_name and conversation.sender_name != sender_name:
+            conversation.sender_name = sender_name
         if recipient_id and conversation.recipient_id != recipient_id:
             conversation.recipient_id = recipient_id
+        if sender_name or recipient_id:
             db.commit()
             db.refresh(conversation)
         return conversation
@@ -36,6 +40,7 @@ def get_or_create_inbox_conversation(
     conversation = InboxConversation(
         page_id=page_id,
         sender_id=sender_id,
+        sender_name=(sender_name or "").strip() or None,
         recipient_id=recipient_id,
         customer_facts={},
     )
@@ -179,6 +184,7 @@ def serialize_conversation(conversation: InboxConversation | None, assigned_user
         "id": str(conversation.id),
         "page_id": conversation.page_id,
         "sender_id": conversation.sender_id,
+        "sender_name": conversation.sender_name,
         "recipient_id": conversation.recipient_id,
         "status": conversation.status.value if hasattr(conversation.status, "value") else conversation.status,
         "conversation_summary": conversation.conversation_summary or "",

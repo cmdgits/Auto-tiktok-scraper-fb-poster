@@ -75,6 +75,18 @@ def _graph_post(
     return _parse_graph_response(response)
 
 
+def _graph_delete(path: str, *, params: dict | None = None, timeout: int = 30):
+    response = request_with_retries(
+        "DELETE",
+        f"{GRAPH_API_BASE}/{path.lstrip('/')}",
+        params=params,
+        timeout=timeout,
+        scope="facebook_graph",
+        operation=f"DELETE {path}",
+    )
+    return _parse_graph_response(response)
+
+
 def upload_video_to_facebook(file_path: str, caption: str, page_id: str, access_token: str):
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"Không tìm thấy file: {file_path}")
@@ -474,6 +486,51 @@ def reply_to_comment(comment_id: str, message: str, access_token: str):
             details={"comment_id": comment_id, "error": str(exc)},
         )
         return {"error": str(exc)}
+
+
+def delete_comment(comment_id: str, access_token: str):
+    try:
+        result = _graph_delete(
+            comment_id,
+            params={"access_token": access_token},
+            timeout=30,
+        )
+        if not result["ok"]:
+            log_structured(
+                "facebook_graph",
+                "warning",
+                "Facebook từ chối xóa bình luận.",
+                details={"comment_id": comment_id, "message": result["message"]},
+            )
+            return {"error": result["message"], **(result.get("data") or {})}
+        return result["data"]
+    except Exception as exc:
+        log_structured(
+            "facebook_graph",
+            "error",
+            "Lỗi API xóa bình luận Facebook.",
+            details={"comment_id": comment_id, "error": str(exc)},
+        )
+        return {"error": str(exc)}
+
+
+def lookup_profile_name(profile_id: str, access_token: str) -> str | None:
+    if not profile_id or not access_token:
+        return None
+    try:
+        result = _graph_get(
+            profile_id,
+            params={
+                "fields": "name",
+                "access_token": access_token,
+            },
+            timeout=30,
+        )
+        if not result["ok"]:
+            return None
+        return (result.get("data") or {}).get("name") or None
+    except Exception:
+        return None
 
 
 def send_page_message(recipient_id: str, message: str, access_token: str):

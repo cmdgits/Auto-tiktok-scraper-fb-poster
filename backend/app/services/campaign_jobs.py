@@ -331,6 +331,7 @@ def sync_campaign_content(
 
 def reply_to_comment_job(interaction_log_id: str) -> dict:
     db: Session = SessionLocal()
+    log: InteractionLog | None = None
     try:
         log_uuid = parse_uuid_or_none(interaction_log_id)
         if not log_uuid:
@@ -340,14 +341,24 @@ def reply_to_comment_job(interaction_log_id: str) -> dict:
         if not log:
             raise ValueError("Không tìm thấy bình luận cần phản hồi.")
 
+        if log.status == InteractionStatus.replied:
+            return {"ok": True, "log_id": interaction_log_id, "message": "Comment already replied."}
+
+        if (log.reply_mode or "ai") != "ai":
+            log.status = InteractionStatus.pending
+            log.last_error = None
+            db.commit()
+            return {"ok": True, "log_id": interaction_log_id, "message": "Comment assigned to operator."}
+
         page_config = db.query(FacebookPage).filter(FacebookPage.page_id == log.page_id).first()
         if not page_config or not page_config.long_lived_access_token:
             log.status = InteractionStatus.failed
             log.ai_reply = "Trang Facebook chưa có mã truy cập hợp lệ."
+            log.last_error = "Page access token is missing."
             db.commit()
             return {"ok": False, "log_id": interaction_log_id}
 
-        if page_config.comment_auto_reply_enabled is False:
+        if False and page_config.comment_auto_reply_enabled is False:
             log.status = InteractionStatus.ignored
             log.ai_reply = "Tự động phản hồi bình luận đang tắt cho fanpage này."
             db.commit()
@@ -364,6 +375,10 @@ def reply_to_comment_job(interaction_log_id: str) -> dict:
         res = reply_to_comment(log.comment_id, ai_reply, access_token)
         if res and "id" in res:
             log.status = InteractionStatus.replied
+            log.reply_source = "ai"
+            log.reply_author_user_id = None
+            log.facebook_reply_comment_id = res.get("id")
+            log.last_error = None
             record_event(
                 "webhook",
                 "info",
@@ -373,6 +388,9 @@ def reply_to_comment_job(interaction_log_id: str) -> dict:
             )
         else:
             log.status = InteractionStatus.failed
+            log.reply_source = None
+            log.facebook_reply_comment_id = None
+            log.last_error = res.get("error") if isinstance(res, dict) else "Unable to reply to Facebook comment."
             record_event(
                 "webhook",
                 "warning",
@@ -384,6 +402,10 @@ def reply_to_comment_job(interaction_log_id: str) -> dict:
         db.commit()
         return {"ok": log.status == InteractionStatus.replied, "log_id": interaction_log_id}
     except Exception as exc:
+        if log is not None:
+            log.status = InteractionStatus.failed
+            log.last_error = str(exc)
+            db.commit()
         record_event(
             "webhook",
             "error",

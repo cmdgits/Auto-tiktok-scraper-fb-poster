@@ -76,7 +76,7 @@ export default function ConversationListPanel({
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="font-medium text-slate-900">{targetPage?.page_name || conversation.page_id}</div>
-                  <div className="mt-1 text-xs text-[var(--text-muted)]">Người gửi: {conversation.sender_id}</div>
+                  <div className="mt-1 text-xs text-[var(--text-muted)]">Người gửi: {conversation.sender_name || conversation.sender_id}</div>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <StatusPill tone={statusMeta.tone}>{statusMeta.label}</StatusPill>

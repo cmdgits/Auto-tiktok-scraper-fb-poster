@@ -5,7 +5,6 @@
   ExternalLink,
   MessagesSquare,
   RefreshCw,
-  UserPlus,
 } from 'lucide-react';
 
 import {
@@ -29,25 +28,16 @@ export default function ConversationWorkspace({
     selectedConversationLogs,
     fbPages,
     actionState,
-    isAdmin,
-    assignableUsers,
-    conversationAssigneeDraft,
-    conversationNoteDraft,
-    currentUser,
     manualReplyDraft,
   } = state;
   const {
     handleConversationStatusChange,
-    setConversationAssigneeDraft,
-    setConversationNoteDraft,
-    handleConversationMetaSave,
     setManualReplyDraft,
     handleManualReply,
   } = actions;
   const {
     formatDateTime,
     formatIntentLabel,
-    getConversationFactEntries,
   } = helpers;
   const { FIELD_CLASS, BUTTON_PRIMARY, BUTTON_SECONDARY, BUTTON_GHOST } = classes;
   const { manualReplyPanelRef, manualReplyInputRef } = refs;
@@ -58,7 +48,6 @@ export default function ConversationWorkspace({
     );
   }
 
-  const factEntries = getConversationFactEntries(selectedConversation);
   const pageLabel = fbPages.find((pageItem) => pageItem.page_id === selectedConversation.page_id)?.page_name || selectedConversation.page_id;
   const isAiActive = selectedConversation.status === 'ai_active';
   const isOperatorActive = selectedConversation.status === 'operator_active';
@@ -72,7 +61,7 @@ export default function ConversationWorkspace({
             <div className="font-display text-xl font-semibold text-slate-900">
               {pageLabel}
             </div>
-            <div className="mt-1 text-sm text-[var(--text-muted)]">Người gửi: {selectedConversation.sender_id}</div>
+            <div className="mt-1 text-sm text-[var(--text-muted)]">Người gửi: {selectedConversation.sender_name || selectedConversation.sender_id}</div>
             <div className="mt-3 flex flex-wrap gap-2">
               <StatusPill tone={selectedConversationStatusMeta.tone}>{selectedConversationStatusMeta.label}</StatusPill>
               {selectedConversation.current_intent ? <StatusPill tone="amber">{formatIntentLabel(selectedConversation.current_intent)}</StatusPill> : null}
@@ -150,111 +139,38 @@ export default function ConversationWorkspace({
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1.05fr_0.95fr]">
-        <div className="rounded-[24px] border border-slate-200/80 bg-white/80 p-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Memory hội thoại</div>
-            {isOperatorActive ? <StatusPill tone="rose" icon={AlertTriangle}>Đang cần người thật</StatusPill> : null}
-          </div>
-          <div className="mt-3 text-sm leading-7 text-slate-900">{selectedConversation.conversation_summary || 'Chưa có tóm tắt hội thoại.'}</div>
-          {selectedConversation.handoff_reason ? (
-            <div className="mt-4 rounded-[20px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm leading-7 text-rose-700">
-              {selectedConversation.handoff_reason}
-            </div>
-          ) : null}
+      <div className="rounded-[24px] border border-slate-200/80 bg-white/80 p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Timeline cuộc trò chuyện</div>
+          <StatusPill tone="slate">{selectedConversationLogs.length} bản ghi</StatusPill>
         </div>
-        <div className="rounded-[24px] border border-slate-200/80 bg-white/80 p-4">
-          <div className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Intent và dữ kiện nhớ</div>
-          <div className="mt-3 space-y-3">
-            <InfoRow label="Intent hiện tại" value={formatIntentLabel(selectedConversation.current_intent)} emphasis />
-            <InfoRow label="Người xử lý" value={selectedConversation.assigned_user?.display_name || 'Chưa gán'} />
+        {selectedConversationTimeline.length === 0 ? (
+          <div className="mt-4">
+            <EmptyState title="Chưa có timeline" description="Lịch sử chat sẽ hiện ở đây khi có tin nhắn hoặc phản hồi." />
           </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            {factEntries.length > 0
-              ? factEntries.map(([key, value]) => (
-                <StatusPill key={`${selectedConversation.id}-${key}`} tone="slate">{`${formatIntentLabel(key)}: ${value}`}</StatusPill>
-              ))
-              : <StatusPill tone="slate">Chưa có facts</StatusPill>}
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[0.84fr_1.16fr]">
-        <div className="rounded-[24px] border border-slate-200/80 bg-white/80 p-4">
-          <div className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Điều phối operator</div>
-          <div className="mt-4 space-y-4">
-            {isAdmin ? (
-              <label className="block space-y-2">
-                <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Giao cho</span>
-                <select className={FIELD_CLASS} value={conversationAssigneeDraft} onChange={(event) => setConversationAssigneeDraft(event.target.value)}>
-                  <option value="">Chưa gán người xử lý</option>
-                  {assignableUsers.map((user) => (
-                    <option key={user.id} value={user.id}>
-                      {(user.display_name || user.username)} • {user.role}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : (
-              <button type="button" className={BUTTON_GHOST} onClick={() => setConversationAssigneeDraft(currentUser?.id || '')}>
-                <UserPlus className="h-4 w-4" />
-                Nhận xử lý cho mình
-              </button>
-            )}
-            <label className="block space-y-2">
-              <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Ghi chú nội bộ</span>
-              <textarea
-                className={cx(FIELD_CLASS, 'min-h-[160px] resize-y')}
-                value={conversationNoteDraft}
-                onChange={(event) => setConversationNoteDraft(event.target.value)}
-                placeholder="Ghi chú nội bộ cho operator, không gửi cho khách."
-              />
-            </label>
-            <button
-              type="button"
-              className={BUTTON_SECONDARY}
-              onClick={handleConversationMetaSave}
-              disabled={actionState[`conversation-meta-${selectedConversation.id}`]}
-            >
-              <CircleCheck className="h-4 w-4" />
-              {actionState[`conversation-meta-${selectedConversation.id}`] ? 'Đang lưu...' : 'Lưu phân công và ghi chú'}
-            </button>
-          </div>
-        </div>
-
-        <div className="rounded-[24px] border border-slate-200/80 bg-white/80 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Timeline cuộc trò chuyện</div>
-            <StatusPill tone="slate">{selectedConversationLogs.length} bản ghi</StatusPill>
-          </div>
-          {selectedConversationTimeline.length === 0 ? (
-            <div className="mt-4">
-              <EmptyState title="Chưa có timeline" description="Lịch sử chat sẽ hiện ở đây khi có tin nhắn hoặc phản hồi." />
-            </div>
-          ) : (
-            <div className="mt-4 max-h-[32rem] space-y-3 overflow-y-auto pr-1">
-              {selectedConversationTimeline.map((event) => (
-                <div
-                  key={event.id}
-                  className={cx(
-                    'rounded-[22px] border px-4 py-3',
-                    event.type === 'customer'
-                      ? 'border-slate-200/80 bg-white/80'
-                      : event.type === 'operator'
-                        ? 'border-amber-200 bg-amber-50'
-                        : 'border-sky-200 bg-sky-50',
-                  )}
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="font-medium text-slate-900">{event.sourceLabel}</div>
-                    <StatusPill tone="slate" icon={Clock}>{formatDateTime(event.time)}</StatusPill>
-                  </div>
-                  <div className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-900">{event.text}</div>
+        ) : (
+          <div className="mt-4 max-h-[40rem] space-y-3 overflow-y-auto pr-1">
+            {selectedConversationTimeline.map((event) => (
+              <div
+                key={event.id}
+                className={cx(
+                  'rounded-[22px] border px-4 py-3',
+                  event.type === 'customer'
+                    ? 'border-slate-200/80 bg-white/80'
+                    : event.type === 'operator'
+                      ? 'border-amber-200 bg-amber-50'
+                      : 'border-sky-200 bg-sky-50',
+                )}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="font-medium text-slate-900">{event.sourceLabel}</div>
+                  <StatusPill tone="slate" icon={Clock}>{formatDateTime(event.time)}</StatusPill>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
+                <div className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-900">{event.text}</div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="rounded-[24px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(56,189,248,0.06),rgba(0,0,0,0.06))] p-4">
