@@ -99,7 +99,6 @@ export default function SettingsSection({
     runtimeOverrideCount,
     runtimeForm,
     runtimeSettings,
-    runtimeConfig,
     tunnelVerification,
     discoveredFbPages,
     selectedDiscoveredPageIds,
@@ -129,16 +128,15 @@ export default function SettingsSection({
     handleValidatePage,
     handleDeleteFacebookPage,
     handleRuntimeConfigSave,
+    handleRestoreRuntimeConfig,
     handleRuntimeFieldChange,
     handleVerifyTunnelToken,
-    setRuntimeForm,
   } = actions;
   const {
     getPageTokenMeta,
     getResolvedPageTokenKind,
     getMessengerConnectionMeta,
     formatDateTime,
-    extractRuntimeForm,
   } = helpers;
   const { FIELD_CLASS, BUTTON_PRIMARY, BUTTON_SECONDARY, BUTTON_GHOST } = classes;
 
@@ -886,8 +884,13 @@ export default function SettingsSection({
               </div>
             </div>
             <div className="flex flex-wrap justify-end gap-2">
-              <button type="button" className={BUTTON_GHOST} onClick={() => setRuntimeForm(extractRuntimeForm(runtimeConfig))}>
-                Khôi phục giá trị đã lưu
+              <button
+                type="button"
+                className={BUTTON_GHOST}
+                onClick={handleRestoreRuntimeConfig}
+                disabled={actionState['restore-runtime-config']}
+              >
+                {actionState['restore-runtime-config'] ? 'Đang tải lại...' : 'Khôi phục giá trị đã lưu'}
               </button>
               <button type="submit" disabled={actionState['save-runtime-config']} className={BUTTON_PRIMARY}>
                 <ShieldCheck className="h-4 w-4" />

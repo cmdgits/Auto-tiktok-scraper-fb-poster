@@ -124,4 +124,64 @@ export function DetailToggle({ expanded, onClick, className = '' }) {
   );
 }
 
+export function ConfirmDialog({
+  open,
+  title,
+  description,
+  confirmLabel = 'Xác nhận',
+  cancelLabel = 'Hủy',
+  tone = 'sky',
+  onConfirm,
+  onCancel,
+}) {
+  if (!open) return null;
+
+  const iconClass = {
+    sky: 'border-sky-200 bg-sky-50 text-sky-700',
+    amber: 'border-amber-200 bg-amber-50 text-amber-700',
+    rose: 'border-rose-200 bg-rose-50 text-rose-700',
+    slate: 'border-slate-200 bg-slate-50 text-slate-700',
+  }[tone] || 'border-slate-200 bg-slate-50 text-slate-700';
+
+  const confirmClass = {
+    sky: 'btn-primary',
+    amber: 'border border-amber-200 bg-amber-500 text-white hover:bg-amber-600',
+    rose: 'border border-rose-200 bg-rose-600 text-white hover:bg-rose-700',
+    slate: 'btn-secondary',
+  }[tone] || 'btn-primary';
+
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 sm:p-6">
+      <button type="button" aria-label="Đóng xác nhận" className="absolute inset-0 bg-slate-900/28 backdrop-blur-[2px]" onClick={onCancel} />
+      <div className="panel-surface relative z-[1] w-full max-w-[30rem] rounded-[30px] p-5 sm:p-6">
+        <div className="flex items-start gap-4">
+          <div className={cx('flex h-12 w-12 shrink-0 items-center justify-center rounded-[18px] border', iconClass)}>
+            <CircleX className="h-5 w-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="font-display text-[1.05rem] font-semibold text-slate-900 sm:text-[1.15rem]">{title}</div>
+            <div className="mt-2 text-[14px] leading-6 text-[var(--text-soft)]">{description}</div>
+          </div>
+        </div>
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            className="btn-ghost inline-flex min-h-10 items-center justify-center rounded-full px-4 py-2.5 text-[13px] font-medium"
+            onClick={onCancel}
+          >
+            {cancelLabel}
+          </button>
+          <button
+            type="button"
+            className={cx(confirmClass, 'inline-flex min-h-10 items-center justify-center rounded-full px-4 py-2.5 text-[13px] font-semibold transition')}
+            onClick={onConfirm}
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 

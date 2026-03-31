@@ -29,6 +29,7 @@ import QueueSection from './components/dashboard/QueueSection';
 import SecuritySection from './components/dashboard/SecuritySection';
 import SettingsSection from './components/dashboard/SettingsSection';
 import {
+  ConfirmDialog,
   cx,
   DetailToggle,
   InfoRow,
@@ -542,8 +543,10 @@ function App() {
   const [conversationNoteDraft, setConversationNoteDraft] = useState('');
   const [conversationAssigneeDraft, setConversationAssigneeDraft] = useState('');
   const [pendingOperatorComposerId, setPendingOperatorComposerId] = useState(null);
+  const [confirmDialog, setConfirmDialog] = useState(null);
   const manualReplyPanelRef = useRef(null);
   const manualReplyInputRef = useRef(null);
+  const confirmResolverRef = useRef(null);
 
   const isAdmin = currentUser?.role === 'admin';
   const staleWorkers = workers.filter((worker) => !worker.is_online);
@@ -659,6 +662,29 @@ function App() {
 
   const setBusy = (key, value) => setActionState((current) => ({ ...current, [key]: value }));
   const showNotice = (type, message) => setNotice({ type, message });
+  const closeConfirmDialog = (result) => {
+    const resolver = confirmResolverRef.current;
+    confirmResolverRef.current = null;
+    setConfirmDialog(null);
+    if (resolver) resolver(result);
+  };
+
+  const confirmAction = ({
+    title,
+    description,
+    confirmLabel = 'Xác nhận',
+    cancelLabel = 'Hủy',
+    tone = 'sky',
+  }) => new Promise((resolve) => {
+    confirmResolverRef.current = resolve;
+    setConfirmDialog({
+      title,
+      description,
+      confirmLabel,
+      cancelLabel,
+      tone,
+    });
+  });
 
   const fetchDashboard = async () => {
     if (!token) return;
@@ -931,6 +957,14 @@ function App() {
 
   const handleFbSubmit = async (event) => {
     event.preventDefault();
+    const confirmed = await confirmAction({
+      title: 'Lưu cấu hình fanpage',
+      description: `Fanpage "${fbForm.page_name || fbForm.page_id || 'mới'}" sẽ được lưu vào hệ thống.`,
+      confirmLabel: 'Lưu fanpage',
+      tone: 'sky',
+    });
+    if (!confirmed) return;
+
     const payload = await runAction('save-page', async () => {
       const response = await requestJson(`${API_URL}/facebook/config`, {
         method: 'POST',
@@ -1006,6 +1040,13 @@ function App() {
       showNotice('error', 'Hãy chọn ít nhất một fanpage để import.');
       return;
     }
+    const confirmed = await confirmAction({
+      title: 'Import fanpage đã chọn',
+      description: `${selectedDiscoveredPageIds.length} fanpage sẽ được thêm vào hệ thống và lưu token tương ứng.`,
+      confirmLabel: 'Import fanpage',
+      tone: 'sky',
+    });
+    if (!confirmed) return;
 
     const payload = await runAction('import-pages', () => requestJson(`${API_URL}/facebook/config/import-pages`, {
       method: 'POST',
@@ -1043,6 +1084,13 @@ function App() {
       showNotice('error', 'Chưa có fanpage nào trong hệ thống để làm mới token.');
       return;
     }
+    const confirmed = await confirmAction({
+      title: 'Làm mới token fanpage',
+      description: `Hệ thống sẽ dùng User Access Token hiện tại để làm mới token cho ${fbPages.length} fanpage.`,
+      confirmLabel: 'Làm mới token',
+      tone: 'amber',
+    });
+    if (!confirmed) return;
 
     const payload = await runAction('refresh-pages', () => requestJson(`${API_URL}/facebook/config/refresh-pages`, {
       method: 'POST',
@@ -1067,7 +1115,12 @@ function App() {
   };
 
   const handleDeleteFacebookPage = async (pageId, pageName) => {
-    const confirmed = window.confirm(`Bạn có chắc muốn xóa fanpage "${pageName}" khỏi hệ thống không?`);
+    const confirmed = await confirmAction({
+      title: 'Xóa fanpage',
+      description: `Fanpage "${pageName}" sẽ bị xóa khỏi hệ thống cùng toàn bộ dữ liệu liên quan có thể dọn theo.`,
+      confirmLabel: 'Xóa fanpage',
+      tone: 'rose',
+    });
     if (!confirmed) return;
 
     const payload = await runAction(`delete-page-${pageId}`, () => requestJson(`${API_URL}/facebook/config/${pageId}`, {
@@ -1308,7 +1361,12 @@ function App() {
 
   const handleCampaignAction = async (campaign, action) => {
     if (action === 'delete') {
-      const confirmed = window.confirm(`Xóa chiến dịch "${campaign.name}" và toàn bộ video liên quan?`);
+      const confirmed = await confirmAction({
+        title: 'Xóa chiến dịch',
+        description: `Chiến dịch "${campaign.name}" và toàn bộ video liên quan sẽ bị xóa.`,
+        confirmLabel: 'Xóa chiến dịch',
+        tone: 'rose',
+      });
       if (!confirmed) return;
     }
     const config = {
@@ -1344,6 +1402,13 @@ function App() {
       showNotice('error', 'Bạn cần nhập TUNNEL_TOKEN trước khi xác thực.');
       return;
     }
+    const confirmed = await confirmAction({
+      title: 'Lưu token và kết nối tunnel',
+      description: 'Hệ thống sẽ lưu TUNNEL_TOKEN, ghi lại runtime.env và thử khởi động lại service tunnel.',
+      confirmLabel: 'Lưu và kết nối',
+      tone: 'amber',
+    });
+    if (!confirmed) return;
 
     setBusy('verify-tunnel-token', true);
     try {
@@ -1366,6 +1431,14 @@ function App() {
 
   const handleRuntimeConfigSave = async (event) => {
     event.preventDefault();
+    const confirmed = await confirmAction({
+      title: 'Lưu cấu hình hệ thống',
+      description: 'Các thay đổi runtime hiện tại sẽ được ghi vào hệ thống và áp dụng cho những phần liên quan.',
+      confirmLabel: 'Lưu cấu hình',
+      tone: 'sky',
+    });
+    if (!confirmed) return;
+
     const payload = await runAction('save-runtime-config', () => requestJson(`${API_URL}/system/runtime-config`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -1375,6 +1448,21 @@ function App() {
       setRuntimeConfig(payload);
       setRuntimeForm(extractRuntimeForm(payload));
       await loadRuntimeConfig();
+    }
+  };
+
+  const handleRestoreRuntimeConfig = async () => {
+    setBusy('restore-runtime-config', true);
+    try {
+      const payload = await requestJson(`${API_URL}/system/runtime-config`);
+      setRuntimeConfig(payload);
+      setRuntimeForm(extractRuntimeForm(payload));
+      setTunnelVerification(null);
+      showNotice('success', 'Đã tải lại cấu hình runtime đang lưu.');
+    } catch (error) {
+      showNotice('error', error.message);
+    } finally {
+      setBusy('restore-runtime-config', false);
     }
   };
 
@@ -1451,7 +1539,12 @@ function App() {
   };
 
   const handleDeleteUser = async (userId, username) => {
-    const confirmed = window.confirm(`Xóa vĩnh viễn tài khoản @${username}? Thao tác này không thể hoàn tác.`);
+    const confirmed = await confirmAction({
+      title: 'Xóa tài khoản',
+      description: `Tài khoản @${username} sẽ bị xóa vĩnh viễn. Thao tác này không thể hoàn tác.`,
+      confirmLabel: 'Xóa tài khoản',
+      tone: 'rose',
+    });
     if (!confirmed) return;
     await runAction(`user-delete-${userId}`, () => requestJson(`${API_URL}/users/${userId}`, { method: 'DELETE' }));
   };
@@ -1461,7 +1554,12 @@ function App() {
       showNotice('success', 'Không có worker mất kết nối nào để dọn.');
       return;
     }
-    const confirmed = window.confirm(`Dọn ${staleWorkers.length} worker mất kết nối khỏi danh sách theo dõi?`);
+    const confirmed = await confirmAction({
+      title: 'Dọn worker mất kết nối',
+      description: `${staleWorkers.length} worker stale sẽ bị xóa khỏi danh sách theo dõi.`,
+      confirmLabel: 'Dọn worker',
+      tone: 'amber',
+    });
     if (!confirmed) return;
     await runAction('cleanup-workers', () => requestJson(`${API_URL}/system/workers/cleanup`, { method: 'POST' }));
   };
@@ -1698,7 +1796,6 @@ function App() {
         runtimeOverrideCount,
         runtimeForm,
         runtimeSettings,
-        runtimeConfig,
         tunnelVerification,
         discoveredFbPages,
         selectedDiscoveredPageIds,
@@ -1728,16 +1825,15 @@ function App() {
         handleValidatePage,
         handleDeleteFacebookPage,
         handleRuntimeConfigSave,
+        handleRestoreRuntimeConfig,
         handleRuntimeFieldChange,
         handleVerifyTunnelToken,
-        setRuntimeForm,
       }}
       helpers={{
         getPageTokenMeta,
         getResolvedPageTokenKind,
         getMessengerConnectionMeta,
         formatDateTime,
-        extractRuntimeForm,
       }}
       classes={{
         FIELD_CLASS,
@@ -2066,6 +2162,16 @@ function App() {
             </div>
           </div>
         </div>
+        <ConfirmDialog
+          open={Boolean(confirmDialog)}
+          title={confirmDialog?.title}
+          description={confirmDialog?.description}
+          confirmLabel={confirmDialog?.confirmLabel}
+          cancelLabel={confirmDialog?.cancelLabel}
+          tone={confirmDialog?.tone}
+          onConfirm={() => closeConfirmDialog(true)}
+          onCancel={() => closeConfirmDialog(false)}
+        />
       </div>
     </div>
   );
