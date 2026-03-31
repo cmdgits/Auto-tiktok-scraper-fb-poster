@@ -1452,13 +1452,29 @@ function App() {
   };
 
   const handleRestoreRuntimeConfig = async () => {
+    const confirmed = await confirmAction({
+      title: 'Khôi phục giá trị đã lưu',
+      description: 'Hệ thống sẽ tải lại cấu hình runtime đang lưu trên server và ghi đè mọi thay đổi chưa lưu trong form hiện tại.',
+      confirmLabel: 'Khôi phục',
+      tone: 'amber',
+    });
+    if (!confirmed) return;
+
     setBusy('restore-runtime-config', true);
     try {
       const payload = await requestJson(`${API_URL}/system/runtime-config`);
+      const nextForm = extractRuntimeForm(payload);
+      const unchanged = JSON.stringify(nextForm) === JSON.stringify(runtimeForm);
+
       setRuntimeConfig(payload);
-      setRuntimeForm(extractRuntimeForm(payload));
+      setRuntimeForm(nextForm);
       setTunnelVerification(null);
-      showNotice('success', 'Đã tải lại cấu hình runtime đang lưu.');
+      showNotice(
+        'success',
+        unchanged
+          ? 'Cấu hình hiện tại đã giống với giá trị đang lưu. Không có thay đổi nào để khôi phục.'
+          : 'Đã khôi phục lại cấu hình runtime từ dữ liệu đang lưu trên server.',
+      );
     } catch (error) {
       showNotice('error', error.message);
     } finally {
