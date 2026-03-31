@@ -23,6 +23,7 @@ from app.services.security import (
     verify_password,
     hash_password,
 )
+from app.services.runtime_settings import update_runtime_settings
 
 router = APIRouter(prefix="/auth", tags=["Xác thực"])
 security = HTTPBearer()
@@ -150,6 +151,15 @@ def change_password(
 
     current_user.password_hash = hash_password(payload.new_password)
     current_user.must_change_password = False
+    
+    # Đồng bộ mật khẩu mới vào .env nếu là user admin mặc định
+    if current_user.username == settings.DEFAULT_ADMIN_USERNAME:
+        update_runtime_settings(
+            db, 
+            {"ADMIN_PASSWORD": payload.new_password}, 
+            actor_user_id=str(current_user.id)
+        )
+
     db.commit()
     record_event(
         "auth",

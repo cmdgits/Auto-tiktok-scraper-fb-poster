@@ -54,6 +54,18 @@ RUNTIME_SETTING_SPECS = {
         "is_secret": False,
         "requires_restart": False,
     },
+    "ADMIN_PASSWORD": {
+        "label": "Mật khẩu Admin mặc định",
+        "description": "Mật khẩu cho tài khoản quản trị hệ thống",
+        "is_secret": True,
+        "requires_restart": False,
+    },
+    "DEFAULT_ADMIN_USERNAME": {
+        "label": "Tên đăng nhập Admin mặc định",
+        "description": "Tên đăng nhập cho tài khoản quản trị hệ thống",
+        "is_secret": False,
+        "requires_restart": False,
+    },
 }
 
 
