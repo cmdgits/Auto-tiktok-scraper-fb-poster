@@ -540,11 +540,27 @@ def _resolve_contact_name(
 
 
 def _record_comment_event(db: Session, page_id: str, value: dict):
-    comment_id = value.get("comment_id")
-    message = value.get("message")
-    post_id = value.get("post_id")
-    sender_id = value.get("from", {}).get("id")
-    sender_name = value.get("from", {}).get("name")
+    comment_id = (value.get("comment_id") or "").strip()
+    message = (value.get("message") or "").strip()
+    post_id = (value.get("post_id") or "").strip()
+    sender_payload = value.get("from") or {}
+    sender_id = (sender_payload.get("id") or "").strip()
+    sender_name = (sender_payload.get("name") or "").strip() or None
+
+    if not page_id or not comment_id or not sender_id or not message:
+        record_event(
+            "webhook",
+            "info",
+            "Bỏ qua sự kiện bình luận không hợp lệ hoặc thiếu dữ liệu người dùng.",
+            db=db,
+            details={
+                "page_id": page_id,
+                "comment_id": comment_id or None,
+                "post_id": post_id or None,
+                "sender_id": sender_id or None,
+            },
+        )
+        return
 
     if sender_id == page_id:
         return

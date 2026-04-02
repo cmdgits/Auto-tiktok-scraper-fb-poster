@@ -363,6 +363,20 @@ def reply_to_comment_job(interaction_log_id: str) -> dict:
             db.commit()
             return {"ok": True, "log_id": interaction_log_id, "message": "Comment assigned to operator."}
 
+        if not (log.comment_id or "").strip() or not (log.user_id or "").strip() or not (log.user_message or "").strip():
+            log.status = InteractionStatus.ignored
+            log.ai_reply = "Binh luan nay khong co du du lieu nguoi dung de AI phan hoi."
+            log.last_error = None
+            db.commit()
+            return {"ok": False, "ignored": True, "log_id": interaction_log_id}
+
+        if (log.page_id or "").strip() and (log.user_id or "").strip() == (log.page_id or "").strip():
+            log.status = InteractionStatus.ignored
+            log.ai_reply = "Binh luan nay den tu chinh fanpage nen AI se khong tu phan hoi."
+            log.last_error = None
+            db.commit()
+            return {"ok": False, "ignored": True, "log_id": interaction_log_id}
+
         page_config = db.query(FacebookPage).filter(FacebookPage.page_id == log.page_id).first()
         if not page_config or not page_config.long_lived_access_token:
             log.status = InteractionStatus.failed
@@ -371,11 +385,12 @@ def reply_to_comment_job(interaction_log_id: str) -> dict:
             db.commit()
             return {"ok": False, "log_id": interaction_log_id}
 
-        if False and page_config.comment_auto_reply_enabled is False:
+        if page_config.comment_auto_reply_enabled is False:
             log.status = InteractionStatus.ignored
             log.ai_reply = "Tự động phản hồi bình luận đang tắt cho fanpage này."
+            log.last_error = None
             db.commit()
-            return {"ok": False, "log_id": interaction_log_id}
+            return {"ok": False, "ignored": True, "log_id": interaction_log_id}
 
         access_token = decrypt_secret(page_config.long_lived_access_token)
         reply_plan = build_comment_reply_plan(

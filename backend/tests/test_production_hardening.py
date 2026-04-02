@@ -173,7 +173,7 @@ def test_comment_webhook_worker_smoke_flow(client, db_session, monkeypatch):
     assert pending_task is not None
 
     monkeypatch.setattr(
-        "app.services.campaign_jobs.generate_reply",
+        "app.services.page_reply_engine.generate_reply",
         lambda user_message, **kwargs: "Cảm ơn bạn đã ủng hộ nhé!",
     )
     monkeypatch.setattr(
