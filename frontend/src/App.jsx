@@ -626,6 +626,10 @@ function App() {
   const confirmResolverRef = useRef(null);
 
   const isAdmin = currentUser?.role === 'admin';
+  const isQueueSection = activeSection === 'queue';
+  const isMessagesSection = activeSection === 'messages';
+  const isSettingsSection = activeSection === 'settings';
+  const shouldHydratePageChecks = isSettingsSection || isMessagesSection;
   const staleWorkers = workers.filter((worker) => !worker.is_online);
   const onlineWorkers = workers.filter((worker) => worker.is_online).length;
   const currentSection = NAV_ITEMS.find((item) => item.id === activeSection) || NAV_ITEMS[0];
@@ -786,23 +790,30 @@ function App() {
     }
   };
 
-  const fetchDashboard = async ({ includeVideos = true } = {}) => {
+  const fetchDashboard = async ({ includeVideos = isQueueSection } = {}) => {
     if (!token) return;
     setIsRefreshing(true);
     try {
-      const meData = await requestJson(`${API_URL}/auth/me`);
+      const meData = currentUser || await requestJson(`${API_URL}/auth/me`);
+      const isAdminUser = meData?.role === 'admin';
+      const loadHealth = activeSection === 'overview' || activeSection === 'operations';
+      const loadEngagement = activeSection === 'engagement';
+      const loadMessages = activeSection === 'messages';
+      const loadOperations = activeSection === 'operations';
+      const loadUsers = activeSection === 'security' && isAdminUser;
+
       const requests = [
         requestJson(`${API_URL}/campaigns/`),
         requestJson(`${API_URL}/campaigns/stats`),
         requestJson(`${API_URL}/facebook/config`),
-        requestJson(`${API_URL}/webhooks/logs`),
-        requestJson(`${API_URL}/webhooks/conversations?limit=80`),
         requestJson(`${API_URL}/system/overview`),
-        requestJson(`${API_URL}/system/health`),
-        requestJson(`${API_URL}/system/tasks?limit=${TASK_FETCH_LIMIT}`),
-        requestJson(`${API_URL}/system/events?limit=${SYSTEM_EVENT_FETCH_LIMIT}`),
-        requestJson(`${API_URL}/system/workers`),
-        meData?.role === 'admin' ? requestJson(`${API_URL}/users/`) : Promise.resolve({ users: [] }),
+        loadHealth ? requestJson(`${API_URL}/system/health`) : Promise.resolve(null),
+        loadEngagement ? requestJson(`${API_URL}/webhooks/logs`) : Promise.resolve(null),
+        loadMessages ? requestJson(`${API_URL}/webhooks/conversations?limit=80`) : Promise.resolve(null),
+        loadOperations ? requestJson(`${API_URL}/system/tasks?limit=${TASK_FETCH_LIMIT}`) : Promise.resolve(null),
+        loadOperations ? requestJson(`${API_URL}/system/events?limit=${SYSTEM_EVENT_FETCH_LIMIT}`) : Promise.resolve(null),
+        loadOperations ? requestJson(`${API_URL}/system/workers`) : Promise.resolve(null),
+        loadUsers ? requestJson(`${API_URL}/users/`) : Promise.resolve(null),
       ];
       if (includeVideos) {
         const params = buildVideoQueryParams();
@@ -818,10 +829,10 @@ function App() {
       const [
         maybeVideosData,
         fbData,
-        logsData,
-        conversationsData,
         systemData,
         healthData,
+        logsData,
+        conversationsData,
         taskData,
         eventData,
         workerData,
@@ -839,15 +850,15 @@ function App() {
         setTotalPages(maybeVideosData.pages ?? 1);
       }
       setFbPages(fbData);
-      setInteractions(logsData);
-      setConversationList(conversationsData.conversations || []);
       setSystemInfo(systemData);
-      setHealthInfo(healthData);
-      setTasks(taskData.tasks || []);
-      setTaskSummary(taskData.summary || DEFAULT_TASK_SUMMARY);
-      setEvents(eventData.events || []);
-      setWorkers(workerData.workers || []);
-      setUsers(userData.users || []);
+      if (healthData) setHealthInfo(healthData);
+      if (logsData) setInteractions(logsData);
+      if (conversationsData) setConversationList(conversationsData.conversations || []);
+      if (taskData) setTasks(taskData.tasks || []);
+      if (taskData?.summary) setTaskSummary(taskData.summary || DEFAULT_TASK_SUMMARY);
+      if (eventData) setEvents(eventData.events || []);
+      if (workerData) setWorkers(workerData.workers || []);
+      if (userData) setUsers(userData.users || []);
       setLastUpdatedAt(new Date().toISOString());
     } catch (error) {
       showNotice('error', error.message);
@@ -911,15 +922,16 @@ function App() {
     fetchDashboard({ includeVideos: false });
     const interval = setInterval(() => fetchDashboard({ includeVideos: false }), AUTO_REFRESH_MS);
     return () => clearInterval(interval);
-  }, [token]);
+  }, [token, activeSection]);
   /* eslint-enable react-hooks/exhaustive-deps */
 
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
+    if (!token || !isQueueSection) return undefined;
     loadVideoQueue();
     const interval = setInterval(() => loadVideoQueue({ silent: true }), AUTO_REFRESH_MS);
     return () => clearInterval(interval);
-  }, [token, page, filters.status, filters.campaignId, filters.sourcePlatform]);
+  }, [token, isQueueSection, page, filters.status, filters.campaignId, filters.sourcePlatform]);
   /* eslint-enable react-hooks/exhaustive-deps */
 
   useEffect(() => {
@@ -989,6 +1001,7 @@ function App() {
       setTunnelVerification(null);
       return;
     }
+    if (!isSettingsSection) return undefined;
 
     let cancelled = false;
     const load = async () => {
@@ -1007,7 +1020,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [token, currentUser?.role]);
+  }, [token, currentUser?.role, isSettingsSection]);
   /* eslint-enable react-hooks/exhaustive-deps */
 
   useEffect(() => {
@@ -1062,9 +1075,9 @@ function App() {
 
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
-    if (!token || !selectedConversationId) return;
+    if (!token || !isMessagesSection || !selectedConversationId) return;
     loadConversationDetail(selectedConversationId, { silent: true });
-  }, [token, selectedConversationId, lastUpdatedAt]);
+  }, [token, isMessagesSection, selectedConversationId, lastUpdatedAt]);
   /* eslint-enable react-hooks/exhaustive-deps */
 
   useEffect(() => {
@@ -1379,7 +1392,7 @@ function App() {
 
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
-    if (!token || fbPages.length === 0) return;
+    if (!token || !shouldHydratePageChecks || fbPages.length === 0) return;
 
     const missingPageIds = fbPages
       .map((pageItem) => pageItem.page_id)
@@ -1420,7 +1433,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [fbPages, pageChecks, token, actionState]);
+  }, [fbPages, pageChecks, token, actionState, shouldHydratePageChecks]);
   /* eslint-enable react-hooks/exhaustive-deps */
 
   const handleReplyAutomationDraftChange = (pageId, key, value) => {
