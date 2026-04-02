@@ -58,21 +58,33 @@ function RuntimeFieldCard({
   readOnly = false,
   action,
 }) {
+  const isTextarea = type === 'textarea';
   return (
     <div className="rounded-[24px] border border-slate-200 bg-white p-4">
       <div className="text-[13px] font-semibold text-slate-900">{label}</div>
       <div className="mt-1 text-[13px] leading-6 text-[var(--text-soft)]">{description}</div>
       <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-        <input
-          type={type}
-          className={cx(fieldClass, readOnly ? 'bg-slate-50 text-slate-600' : '')}
-          value={value}
-          onChange={onChange}
-          placeholder={placeholder}
-          readOnly={readOnly}
-          autoComplete={type === 'password' ? 'new-password' : 'off'}
-          spellCheck="false"
-        />
+        {isTextarea ? (
+          <textarea
+            className={cx(fieldClass, 'min-h-[140px] py-3', readOnly ? 'bg-slate-50 text-slate-600' : '')}
+            value={value}
+            onChange={onChange}
+            placeholder={placeholder}
+            readOnly={readOnly}
+            spellCheck="false"
+          />
+        ) : (
+          <input
+            type={type}
+            className={cx(fieldClass, readOnly ? 'bg-slate-50 text-slate-600' : '')}
+            value={value}
+            onChange={onChange}
+            placeholder={placeholder}
+            readOnly={readOnly}
+            autoComplete={type === 'password' ? 'new-password' : 'off'}
+            spellCheck="false"
+          />
+        )}
         {action ? <div className="sm:shrink-0">{action}</div> : null}
       </div>
       {helper ? <div className="mt-2 text-xs leading-5 text-[var(--text-muted)]">{helper}</div> : null}
@@ -839,6 +851,25 @@ export default function SettingsSection({
                       placeholder="OpenAI API Key"
                       fieldClass={FIELD_CLASS}
                       type="password"
+                    />
+                    <RuntimeFieldCard
+                      label="GOOGLE_SERVICE_ACCOUNT_EMAIL"
+                      description="Email service account được cấp quyền sửa Google Sheet sản phẩm."
+                      helper={buildSettingHelper('GOOGLE_SERVICE_ACCOUNT_EMAIL', 'Hãy share file Google Sheet cho email này với quyền Editor.')}
+                      value={runtimeForm.GOOGLE_SERVICE_ACCOUNT_EMAIL}
+                      onChange={(event) => handleRuntimeFieldChange('GOOGLE_SERVICE_ACCOUNT_EMAIL', event.target.value)}
+                      placeholder="service-account@project-id.iam.gserviceaccount.com"
+                      fieldClass={FIELD_CLASS}
+                    />
+                    <RuntimeFieldCard
+                      label="GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY"
+                      description="Private key của service account để worker đọc và cập nhật cột Status trong Google Sheet."
+                      helper={buildSettingHelper('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY', 'Dán nguyên private key nhiều dòng bắt đầu bằng -----BEGIN PRIVATE KEY-----.')}
+                      value={runtimeForm.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY}
+                      onChange={(event) => handleRuntimeFieldChange('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY', event.target.value)}
+                      placeholder="-----BEGIN PRIVATE KEY-----"
+                      fieldClass={FIELD_CLASS}
+                      type="textarea"
                     />
                   </div>
                 </div>

@@ -60,6 +60,7 @@ class Campaign(Base):
     status = Column(Enum(CampaignStatus), default=CampaignStatus.active)
     auto_post = Column(Boolean, default=False)
     target_page_id = Column(String, nullable=True)
+    product_sheet_url = Column(String, nullable=True)
     schedule_interval = Column(Integer, default=0)
     schedule_start_at = Column(DateTime, nullable=True)
     last_synced_at = Column(DateTime, nullable=True)

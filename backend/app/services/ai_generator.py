@@ -1,5 +1,6 @@
 import json
 import re
+import unicodedata
 from typing import Any
 
 from app.core.config import settings
@@ -65,6 +66,60 @@ DEFAULT_NEGATIVE_KEYWORDS = (
     "phàn nàn",
     "phan nan",
 )
+CAPTION_TIKTOK_TERMS = (
+    "tiktok",
+    "titkok",
+    "fyp",
+    "fy",
+    "xuhuong",
+    "xuhuong",
+    "foryou",
+    "foru",
+    "douyin",
+    "trendingtiktok",
+    "viral_tiktok",
+    "tiktokvn",
+)
+CAPTION_STOPWORDS = {
+    "anh",
+    "chi",
+    "cho",
+    "cua",
+    "dang",
+    "day",
+    "di",
+    "duoc",
+    "hay",
+    "hom",
+    "hien",
+    "khong",
+    "lam",
+    "la",
+    "len",
+    "minh",
+    "mot",
+    "nay",
+    "nguoi",
+    "nha",
+    "nhe",
+    "qua",
+    "roi",
+    "that",
+    "the",
+    "thi",
+    "thu",
+    "tren",
+    "vay",
+    "va",
+    "voi",
+}
+CAPTION_FALLBACK_HASHTAGS = (
+    "videohay",
+    "giaitri",
+    "xemlagi",
+    "khampha",
+    "reelsviet",
+)
 
 def _merge_prompt_instructions(default_prompt: str, prompt_override: str | None = None) -> str:
     extra_prompt = (prompt_override or "").strip()
@@ -87,6 +142,160 @@ def _build_knowledge_block(knowledge_context: str | None) -> str:
 
 def _normalize_text(value: str) -> str:
     return re.sub(r"\s+", " ", (value or "").strip())
+
+
+def _slugify_caption_token(value: str) -> str:
+    raw_value = (value or "").replace("Đ", "D").replace("đ", "d")
+    normalized = unicodedata.normalize("NFKD", raw_value)
+    ascii_value = normalized.encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]+", "", ascii_value.lower())
+
+
+def _strip_caption_hashtags(text: str) -> str:
+    return re.sub(r"(^|\s)#[^\s#]+", " ", text or "")
+
+
+def _strip_caption_urls(text: str) -> str:
+    return re.sub(r"https?://\S+|www\.\S+", " ", text or "")
+
+
+def _clean_caption_source_text(text: str) -> str:
+    cleaned = _strip_caption_urls(_strip_caption_hashtags(text or ""))
+    cleaned = re.sub(r"[_|]+", " ", cleaned)
+    return _normalize_text(cleaned)
+
+
+def _extract_caption_keywords(text: str, *, limit: int = 4) -> list[str]:
+    words = re.findall(r"[0-9A-Za-zÀ-ỹĐđ]+", _clean_caption_source_text(text))
+    keywords: list[str] = []
+    seen: set[str] = set()
+    for word in words:
+        slug = _slugify_caption_token(word)
+        if not slug or slug.isdigit() or len(slug) < 3:
+            continue
+        if slug in CAPTION_STOPWORDS or slug in CAPTION_TIKTOK_TERMS:
+            continue
+        if slug in seen:
+            continue
+        seen.add(slug)
+        keywords.append(slug)
+        if len(keywords) >= limit:
+            break
+    return keywords
+
+
+def _truncate_caption_words(text: str, *, limit: int) -> str:
+    words = _normalize_text(text).split()
+    if not words:
+        return ""
+    if len(words) <= limit:
+        return " ".join(words)
+    return f"{' '.join(words[:limit]).rstrip(' ,.;:!?')}..."
+
+
+def _sentence_case_text(text: str) -> str:
+    normalized = _normalize_text(text)
+    if not normalized:
+        return ""
+    return normalized[0].upper() + normalized[1:]
+
+
+def _build_facebook_hashtags(original_caption: str, ai_text: str | None = None, *, limit: int = 5) -> str:
+    hashtag_tokens: list[str] = []
+    seen: set[str] = set()
+
+    for candidate in re.findall(r"#([^\s#]+)", ai_text or ""):
+        slug = _slugify_caption_token(candidate)
+        if not slug or slug in CAPTION_TIKTOK_TERMS or slug in seen:
+            continue
+        seen.add(slug)
+        hashtag_tokens.append(slug)
+        if len(hashtag_tokens) >= limit:
+            return " ".join(f"#{item}" for item in hashtag_tokens)
+
+    for candidate in _extract_caption_keywords(original_caption, limit=limit):
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        hashtag_tokens.append(candidate)
+        if len(hashtag_tokens) >= limit:
+            return " ".join(f"#{item}" for item in hashtag_tokens)
+
+    for candidate in CAPTION_FALLBACK_HASHTAGS:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        hashtag_tokens.append(candidate)
+        if len(hashtag_tokens) >= limit:
+            break
+
+    return " ".join(f"#{item}" for item in hashtag_tokens)
+
+
+def _build_caption_cta(original_caption: str) -> str:
+    normalized = _slugify_caption_token(original_caption)
+    if any(token in normalized for token in ("meo", "tip", "cach", "huongdan")):
+        return "Luu lai de xem lai khi can va xem het clip nhe."
+    if any(token in normalized for token in ("review", "danhgia", "test", "thudo")):
+        return "Xem het clip roi de lai cam nhan cua ban nhe."
+    return "Xem het clip roi ke minh nghe doan nao cuon nhat nha."
+
+
+def _build_caption_fallback(original_caption: str) -> str:
+    cleaned_source = _clean_caption_source_text(original_caption)
+    short_lead = _truncate_caption_words(cleaned_source, limit=12)
+    if short_lead:
+        hook = _sentence_case_text(short_lead)
+        if hook[-1] not in ".!?":
+            hook = f"{hook}."
+    else:
+        hook = "Xem thu clip nay nha."
+
+    detail_seed = _truncate_caption_words(cleaned_source, limit=18)
+    if detail_seed and detail_seed.lower() not in hook.lower():
+        detail = f"{_sentence_case_text(detail_seed)} {_build_caption_cta(cleaned_source)}"
+    else:
+        detail = _build_caption_cta(cleaned_source)
+
+    hashtags = _build_facebook_hashtags(original_caption)
+    return f"{hook}\n{detail}\n\n{hashtags}".strip()
+
+
+def _sanitize_generated_caption(generated_caption: str, original_caption: str) -> str:
+    fallback = _build_caption_fallback(original_caption)
+    if not generated_caption:
+        return fallback
+
+    body_lines: list[str] = []
+    for raw_line in (generated_caption or "").splitlines():
+        line = _normalize_text(_strip_caption_urls(_strip_caption_hashtags(raw_line)))
+        if line:
+            body_lines.append(line)
+
+    if not body_lines:
+        return fallback
+
+    if len(body_lines) == 1:
+        body_lines.append(_build_caption_cta(original_caption))
+
+    normalized_body: list[str] = []
+    for index, line in enumerate(body_lines[:3]):
+        cleaned_line = _sentence_case_text(line)
+        if cleaned_line and cleaned_line[-1] not in ".!?":
+            cleaned_line = f"{cleaned_line}."
+        if cleaned_line:
+            normalized_body.append(cleaned_line)
+        if index == 0 and len(cleaned_line.split()) > 16:
+            normalized_body[0] = f"{_sentence_case_text(_truncate_caption_words(cleaned_line, limit=12)).rstrip('.') }..."
+
+    if not normalized_body:
+        return fallback
+
+    hashtags = _build_facebook_hashtags(original_caption, generated_caption)
+    body_text = "\n".join(normalized_body).strip()
+    if not hashtags:
+        return body_text
+    return f"{body_text}\n\n{hashtags}".strip()
 
 
 def _contains_any(text: str, keywords: tuple[str, ...]) -> bool:
@@ -730,6 +939,25 @@ Kết quả chỉ trả về đoạn caption thuần túy, không có giải th�
 
 Caption gốc: {original_caption}"""
     return _generate_with_ai(prompt, f"{original_caption}\n\n#giaitri #trending", timeout=30)
+
+
+def generate_caption(original_caption: str) -> str:
+    fallback = _build_caption_fallback(original_caption)
+    prompt = f"""You are a Facebook Reels copywriter.
+Mandatory rules:
+1. Rewrite the original caption into a Facebook-first caption with 2-3 short lines only.
+2. Line 1 must be a short hook or title that makes viewers want to watch.
+3. Add one short viewer prompt or curiosity line based on the original caption.
+4. Remove every old hashtag from the source caption.
+5. Add 4-5 relevant hashtags for Facebook only.
+6. Never use TikTok-specific hashtags or phrases such as #tiktok, #fyp, #xuhuong, #douyin, #foryou.
+7. Keep the meaning close to the original caption. Do not invent new facts.
+8. Do not explain your process. Return caption text only.
+
+Original caption:
+{original_caption}"""
+    generated = _generate_with_ai(prompt, fallback, timeout=30)
+    return _sanitize_generated_caption(generated, original_caption)
 
 
 def generate_message_reply_with_context(

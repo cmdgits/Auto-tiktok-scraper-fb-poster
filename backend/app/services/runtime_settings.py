@@ -42,6 +42,18 @@ RUNTIME_SETTING_SPECS = {
         "is_secret": True,
         "requires_restart": False,
     },
+    "GOOGLE_SERVICE_ACCOUNT_EMAIL": {
+        "label": "Google service account email",
+        "description": "Email service account duoc share quyen sua Google Sheet san pham",
+        "is_secret": False,
+        "requires_restart": False,
+    },
+    "GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY": {
+        "label": "Google service account private key",
+        "description": "Private key cua service account de doc va cap nhat Google Sheet",
+        "is_secret": True,
+        "requires_restart": False,
+    },
     "TUNNEL_TOKEN": {
         "label": "TUNNEL_TOKEN",
         "description": "Token Cloudflare Tunnel",

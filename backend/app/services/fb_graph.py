@@ -490,6 +490,32 @@ def reply_to_comment(comment_id: str, message: str, access_token: str):
         return {"error": str(exc)}
 
 
+def create_post_comment(post_id: str, message: str, access_token: str):
+    try:
+        result = _graph_post(
+            f"{post_id}/comments",
+            data={"message": message, "access_token": access_token},
+            timeout=30,
+        )
+        if not result["ok"]:
+            log_structured(
+                "facebook_graph",
+                "warning",
+                "Facebook từ chối tạo bình luận dưới bài đăng.",
+                details={"post_id": post_id, "message": result["message"]},
+            )
+            return {"error": result["message"], **(result.get("data") or {})}
+        return result["data"]
+    except Exception as exc:
+        log_structured(
+            "facebook_graph",
+            "error",
+            "Lỗi API tạo bình luận dưới bài đăng Facebook.",
+            details={"post_id": post_id, "error": str(exc)},
+        )
+        return {"error": str(exc)}
+
+
 def delete_comment(comment_id: str, access_token: str):
     try:
         result = _graph_delete(

@@ -110,6 +110,24 @@ def test_create_campaign_persists_schedule_start_at_in_utc(client, auth_headers,
     assert campaign.schedule_start_at == datetime(2026, 4, 1, 2, 30, 0)
 
 
+def test_create_campaign_persists_product_sheet_url(client, auth_headers, db_session):
+    response = client.post(
+        "/campaigns/",
+        headers=auth_headers,
+        json={
+            "name": "Campaign has product sheet",
+            "source_url": "https://www.tiktok.com/@demo/video/1234567890",
+            "auto_post": True,
+            "schedule_interval": 30,
+            "product_sheet_url": "https://docs.google.com/spreadsheets/d/demo-sheet-id/edit#gid=0",
+        },
+    )
+
+    assert response.status_code == 200
+    campaign = db_session.query(Campaign).one()
+    assert campaign.product_sheet_url == "https://docs.google.com/spreadsheets/d/demo-sheet-id/edit#gid=0"
+
+
 def test_sync_campaign_backfills_missing_source_metadata(client, auth_headers, db_session):
     campaign = Campaign(
         name="Legacy TikTok",

@@ -11,7 +11,8 @@ from app.core.database import SessionLocal
 from app.core.time import utc_now
 from app.models.models import Campaign, CampaignStatus, FacebookPage, Video, VideoStatus
 from app.services.ai_generator import generate_caption
-from app.services.fb_graph import upload_video_to_facebook
+from app.services.fb_graph import create_post_comment, upload_video_to_facebook
+from app.services.google_sheet_products import build_product_comment_messages, select_random_products_from_google_sheet
 from app.services.observability import record_event, update_worker_heartbeat
 from app.services.security import decrypt_secret
 from app.worker.tasks import process_task_queue
@@ -34,6 +35,7 @@ def auto_post_job():
                 .filter(
                     Campaign.target_page_id == page.page_id,
                     Campaign.status == CampaignStatus.active,
+                    Campaign.auto_post.is_(True),
                     Video.status == VideoStatus.ready,
                     Video.publish_time <= now,
                 )
@@ -41,7 +43,7 @@ def auto_post_job():
                 .first()
             )
 
-            if not vid or not vid.campaign.auto_post:
+            if not vid:
                 continue
 
 
@@ -90,9 +92,40 @@ def auto_post_job():
                     )
                     continue
 
+            caption_to_publish = vid.ai_caption
+            product_selection = None
+            if vid.campaign and vid.campaign.product_sheet_url:
+                try:
+                    product_selection = select_random_products_from_google_sheet(vid.campaign.product_sheet_url)
+                    record_event(
+                        "campaign",
+                        "info",
+                        "Đã lấy sản phẩm từ Google Sheet để chuẩn bị bình luận dưới video.",
+                        db=db,
+                        details={
+                            "campaign_id": str(vid.campaign_id),
+                            "video_id": str(vid.id),
+                            "selected_products": len(product_selection.items),
+                            "sheet_title": product_selection.sheet_title,
+                        },
+                    )
+                except Exception as exc:
+                    vid.status = VideoStatus.failed
+                    vid.last_error = f"Không thể lấy sản phẩm từ Google Sheet: {exc}"
+                    vid.retry_count = (vid.retry_count or 0) + 1
+                    db.commit()
+                    record_event(
+                        "campaign",
+                        "error",
+                        "Lấy sản phẩm từ Google Sheet thất bại trước khi đăng video.",
+                        db=db,
+                        details={"campaign_id": str(vid.campaign_id), "video_id": str(vid.id), "error": str(exc)},
+                    )
+                    continue
+
             res = upload_video_to_facebook(
                 file_path=vid.file_path,
-                caption=vid.ai_caption,
+                caption=caption_to_publish,
                 page_id=page.page_id,
                 access_token=access_token,
             )
@@ -101,6 +134,42 @@ def auto_post_job():
                 vid.fb_post_id = res["id"]
                 vid.status = VideoStatus.posted
                 vid.last_error = None
+                if product_selection:
+                    failed_comment_count = 0
+                    for comment_index, comment_message in enumerate(build_product_comment_messages(product_selection.items), start=1):
+                        comment_result = create_post_comment(vid.fb_post_id, comment_message, access_token)
+                        if "id" in comment_result:
+                            record_event(
+                                "campaign",
+                                "info",
+                                "Đã đăng bình luận sản phẩm dưới video.",
+                                db=db,
+                                details={
+                                    "campaign_id": str(vid.campaign_id),
+                                    "video_id": str(vid.id),
+                                    "fb_post_id": vid.fb_post_id,
+                                    "comment_index": comment_index,
+                                    "facebook_comment_id": comment_result.get("id"),
+                                },
+                            )
+                        else:
+                            failed_comment_count += 1
+                            error_message = str(comment_result.get("error", comment_result))
+                            record_event(
+                                "campaign",
+                                "warning",
+                                "Đăng bình luận sản phẩm dưới video thất bại.",
+                                db=db,
+                                details={
+                                    "campaign_id": str(vid.campaign_id),
+                                    "video_id": str(vid.id),
+                                    "fb_post_id": vid.fb_post_id,
+                                    "comment_index": comment_index,
+                                    "error": error_message,
+                                },
+                            )
+                    if failed_comment_count:
+                        vid.last_error = f"Đã đăng video nhưng có {failed_comment_count} bình luận sản phẩm thất bại."
                 record_event(
                     "video",
                     "info",

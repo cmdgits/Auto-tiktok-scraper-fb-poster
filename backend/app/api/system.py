@@ -57,6 +57,8 @@ class RuntimeSettingsUpdateRequest(BaseModel):
     FB_APP_SECRET: str | None = Field(default=None)
     GEMINI_API_KEY: str | None = Field(default=None)
     OPENAI_API_KEY: str | None = Field(default=None)
+    GOOGLE_SERVICE_ACCOUNT_EMAIL: str | None = Field(default=None)
+    GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: str | None = Field(default=None)
     TUNNEL_TOKEN: str | None = Field(default=None)
     TELEGRAM_BOT_TOKEN: str | None = Field(default=None)
     TELEGRAM_CHAT_ID: str | None = Field(default=None)

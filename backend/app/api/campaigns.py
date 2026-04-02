@@ -6,7 +6,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, literal, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.database import get_db
 from app.core.time import utc_now, utc_today
@@ -29,6 +29,7 @@ class CampaignCreate(BaseModel):
     source_url: str
     auto_post: bool = False
     target_page_id: str | None = None
+    product_sheet_url: str | None = None
     schedule_interval: int = Field(default=0, ge=0)
     schedule_start_at: datetime | None = None
 
@@ -106,6 +107,7 @@ def serialize_campaign(campaign: Campaign, summary_map, page_name_map):
         "auto_post": campaign.auto_post,
         "target_page_id": campaign.target_page_id,
         "target_page_name": page_name_map.get(campaign.target_page_id),
+        "product_sheet_url": campaign.product_sheet_url,
         "schedule_interval": campaign.schedule_interval,
         "schedule_start_at": serialize_datetime(campaign.schedule_start_at),
         "last_synced_at": serialize_datetime(campaign.last_synced_at),
@@ -337,6 +339,7 @@ def create_campaign(campaign_in: CampaignCreate, db: Session = Depends(get_db)):
         source_kind=resolved_source.source_kind.value,
         auto_post=campaign_in.auto_post,
         target_page_id=campaign_in.target_page_id,
+        product_sheet_url=(campaign_in.product_sheet_url or "").strip() or None,
         schedule_interval=campaign_in.schedule_interval,
         schedule_start_at=normalize_utc_datetime(campaign_in.schedule_start_at),
         status=CampaignStatus.active,
@@ -573,7 +576,7 @@ def get_videos(
     if page < 1 or limit < 1:
         raise HTTPException(status_code=400, detail="Phân trang không hợp lệ.")
 
-    query = db.query(Video)
+    query = db.query(Video).options(selectinload(Video.campaign))
 
     if status and status != "all":
         allowed_statuses = {video_status.value for video_status in VideoStatus}

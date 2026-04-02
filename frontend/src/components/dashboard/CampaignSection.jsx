@@ -10,6 +10,8 @@
   Trash2,
 } from 'lucide-react';
 
+import { useState } from 'react';
+
 import {
   cx,
   DetailToggle,
@@ -22,6 +24,7 @@ import {
 
 const CARD_CLASS = 'rounded-[24px] border border-slate-200 bg-white p-4 shadow-[0_12px_28px_rgba(15,23,42,0.05)]';
 const MUTED_CARD_CLASS = 'rounded-[24px] border border-slate-200 bg-slate-50 p-4';
+const CAMPAIGN_PAGE_SIZE = 5;
 
 export default function CampaignSection({
   state,
@@ -64,6 +67,14 @@ export default function CampaignSection({
   } = helpers;
   const { SOURCE_PLATFORM_FILTERS } = constants;
   const { FIELD_CLASS, BUTTON_PRIMARY, BUTTON_SECONDARY, BUTTON_GHOST } = classes;
+  const [campaignPage, setCampaignPage] = useState(1);
+
+  const totalCampaignPages = Math.max(1, Math.ceil(filteredCampaigns.length / CAMPAIGN_PAGE_SIZE));
+  const safeCampaignPage = Math.min(campaignPage, totalCampaignPages);
+  const pagedCampaigns = filteredCampaigns.slice(
+    (safeCampaignPage - 1) * CAMPAIGN_PAGE_SIZE,
+    safeCampaignPage * CAMPAIGN_PAGE_SIZE,
+  );
 
   const sourcePreview = detectSourcePreview(formData.source_url);
 
@@ -120,6 +131,19 @@ export default function CampaignSection({
             <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Nguồn nội dung</span>
             <input required type="url" className={FIELD_CLASS} placeholder="https://www.tiktok.com/@... hoặc https://www.youtube.com/shorts/..." value={formData.source_url} onChange={(event) => setFormData({ ...formData, source_url: event.target.value })} />
           </label>
+          <label className="space-y-2 xl:col-span-12">
+            <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Google Sheet sản phẩm</span>
+            <input
+              type="url"
+              className={FIELD_CLASS}
+              placeholder="https://docs.google.com/spreadsheets/d/..."
+              value={formData.product_sheet_url || ''}
+              onChange={(event) => setFormData({ ...formData, product_sheet_url: event.target.value })}
+            />
+            <div className="text-xs leading-5 text-[var(--text-muted)]">
+              Nếu có link này, worker sẽ lấy ngẫu nhiên 2-3 sản phẩm rồi tự bình luận dưới video, mỗi sản phẩm một comment gồm tên và link. Nếu Sheet public thì chỉ cần dán link để đọc; nếu Sheet private và muốn cập nhật `Status` thì mới cần service account.
+            </div>
+          </label>
           <div className="grid gap-3 lg:grid-cols-3 xl:col-span-12">
             <div className={MUTED_CARD_CLASS}>
               <div className="flex flex-wrap items-center gap-2">
@@ -169,7 +193,12 @@ export default function CampaignSection({
         className="2xl:col-span-12"
         eyebrow="Danh mục chiến dịch"
         title="Toàn bộ chiến dịch đang quản lý"
-        subtitle="Lọc nhanh theo nguồn, xem tình trạng đồng bộ và thao tác ngay trên từng chiến dịch."
+        subtitle="Lọc nhanh theo nguồn, xem tình trạng đồng bộ và thao tác ngay trên từng chiến dịch. Mỗi trang chỉ hiển thị 5 chiến dịch mới nhất để màn hình gọn hơn."
+        action={(
+          <div className="rounded-[20px] border border-slate-200/80 bg-white/90 px-4 py-2.5 text-sm text-[var(--text-soft)]">
+            Trang {safeCampaignPage} / {totalCampaignPages}
+          </div>
+        )}
       >
         <div className="mb-5 grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
           <label className="space-y-2">
@@ -177,7 +206,14 @@ export default function CampaignSection({
               <Filter className="h-3.5 w-3.5" />
               Nguồn chiến dịch
             </span>
-            <select className={FIELD_CLASS} value={campaignSourceFilter} onChange={(event) => setCampaignSourceFilter(event.target.value)}>
+            <select
+              className={FIELD_CLASS}
+              value={campaignSourceFilter}
+              onChange={(event) => {
+                setCampaignPage(1);
+                setCampaignSourceFilter(event.target.value);
+              }}
+            >
               {SOURCE_PLATFORM_FILTERS.map((option) => <option key={option.value} value={option.value} style={{ color: '#06101a' }}>{option.label}</option>)}
             </select>
           </label>
@@ -193,8 +229,9 @@ export default function CampaignSection({
             description={campaigns.length === 0 ? 'Tạo chiến dịch để bắt đầu.' : 'Đổi bộ lọc nguồn để xem thêm.'}
           />
         ) : (
-          <div className="grid gap-4 xl:grid-cols-2">
-            {filteredCampaigns.map((campaign) => {
+          <>
+            <div className="grid gap-4 xl:grid-cols-2">
+              {pagedCampaigns.map((campaign) => {
               const syncMeta = getSyncStateMeta(campaign.last_sync_status);
               const isExpanded = !!expandedItems[`campaign:${campaign.id}`];
               const sourcePlatformMeta = getSourcePlatformMeta(campaign.source_platform);
@@ -221,10 +258,11 @@ export default function CampaignSection({
                       <div className="mt-2 text-sm font-medium text-slate-900">{campaign.target_page_name || campaign.target_page_id || 'Chưa gắn'}</div>
                     </div>
                   </div>
-                  <div className="mt-4 rounded-[20px] border border-slate-200/80 bg-slate-50/70 px-4 py-3 text-sm text-[var(--text-soft)]">
-                    {(campaign.video_counts?.total ?? 0)} video • {(campaign.video_counts?.ready ?? 0)} sẵn sàng • {campaign.schedule_interval || 0} phút/lần
-                    {campaign.schedule_start_at ? ` • Bắt đầu ${formatDateTime(campaign.schedule_start_at, { year: 'numeric' })}` : ''}
-                  </div>
+                      <div className="mt-4 rounded-[20px] border border-slate-200/80 bg-slate-50/70 px-4 py-3 text-sm text-[var(--text-soft)]">
+                        {(campaign.video_counts?.total ?? 0)} video • {(campaign.video_counts?.ready ?? 0)} sẵn sàng • {campaign.schedule_interval || 0} phút/lần
+                        {campaign.product_sheet_url ? ' • Có chèn sản phẩm từ Sheet' : ''}
+                        {campaign.schedule_start_at ? ` • Bắt đầu ${formatDateTime(campaign.schedule_start_at, { year: 'numeric' })}` : ''}
+                      </div>
                   <div className="mt-4 flex justify-start">
                     <DetailToggle expanded={isExpanded} onClick={() => toggleExpandedItem(`campaign:${campaign.id}`)} />
                   </div>
@@ -240,6 +278,18 @@ export default function CampaignSection({
                           <ExternalLink className="h-4 w-4 shrink-0" />
                         </a>
                       </div>
+                      {campaign.product_sheet_url ? (
+                        <div className={cx('mt-4', MUTED_CARD_CLASS)}>
+                          <div className="flex items-center gap-2 text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">
+                            <CloudDownload className="h-3.5 w-3.5" />
+                            Google Sheet sản phẩm
+                          </div>
+                          <a href={campaign.product_sheet_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-2 break-all text-sm text-sky-700 hover:text-slate-900">
+                            {campaign.product_sheet_url}
+                            <ExternalLink className="h-4 w-4 shrink-0" />
+                          </a>
+                        </div>
+                      ) : null}
                       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                         <InfoRow label="Nền tảng nguồn" value={sourcePlatformMeta.label} />
                         <InfoRow label="Kiểu nguồn" value={getSourceKindLabel(campaign.source_kind)} />
@@ -247,6 +297,7 @@ export default function CampaignSection({
                         <InfoRow label="Sẵn sàng" value={campaign.video_counts?.ready ?? 0} />
                         <InfoRow label="Thất bại" value={campaign.video_counts?.failed ?? 0} />
                         <InfoRow label="Khoảng cách" value={`${campaign.schedule_interval || 0} phút`} />
+                        <InfoRow label="Sheet sản phẩm" value={campaign.product_sheet_url ? 'Đã gắn' : 'Chưa gắn'} />
                         <InfoRow label="Bắt đầu từ" value={formatDateTime(campaign.schedule_start_at, { year: 'numeric' })} />
                         <InfoRow label="Tự đăng" value={campaign.auto_post ? 'Đang bật' : 'Đang tắt'} />
                         <InfoRow label="Lần sync gần nhất" value={formatDateTime(campaign.last_synced_at)} />
@@ -318,8 +369,32 @@ export default function CampaignSection({
                   ) : null}
                 </article>
               );
-            })}
-          </div>
+              })}
+            </div>
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200/80 pt-5">
+              <div className="text-sm text-[var(--text-soft)]">
+                Đang xem {pagedCampaigns.length} / {filteredCampaigns.length} chiến dịch ở trang {safeCampaignPage}.
+              </div>
+              <div className="mobile-action-stack sm:justify-end">
+                <button
+                  type="button"
+                  disabled={safeCampaignPage <= 1}
+                  onClick={() => setCampaignPage((current) => Math.max(1, current - 1))}
+                  className={BUTTON_GHOST}
+                >
+                  Trước
+                </button>
+                <button
+                  type="button"
+                  disabled={safeCampaignPage >= totalCampaignPages}
+                  onClick={() => setCampaignPage((current) => Math.min(totalCampaignPages, current + 1))}
+                  className={BUTTON_GHOST}
+                >
+                  Sau
+                </button>
+              </div>
+            </div>
+          </>
         )}
       </Panel>
     </div>

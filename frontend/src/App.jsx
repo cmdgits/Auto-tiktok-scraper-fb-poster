@@ -86,6 +86,8 @@ const DEFAULT_RUNTIME_FORM = {
   FB_APP_SECRET: '',
   GEMINI_API_KEY: '',
   OPENAI_API_KEY: '',
+  GOOGLE_SERVICE_ACCOUNT_EMAIL: '',
+  GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: '',
   TUNNEL_TOKEN: '',
   TELEGRAM_BOT_TOKEN: '',
   TELEGRAM_CHAT_ID: '',
@@ -119,6 +121,8 @@ function extractRuntimeForm(payload) {
     FB_APP_SECRET: payload?.settings?.FB_APP_SECRET?.value || '',
     GEMINI_API_KEY: payload?.settings?.GEMINI_API_KEY?.value || '',
     OPENAI_API_KEY: payload?.settings?.OPENAI_API_KEY?.value || '',
+    GOOGLE_SERVICE_ACCOUNT_EMAIL: payload?.settings?.GOOGLE_SERVICE_ACCOUNT_EMAIL?.value || '',
+    GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: payload?.settings?.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.value || '',
     TUNNEL_TOKEN: payload?.settings?.TUNNEL_TOKEN?.value || '',
     TELEGRAM_BOT_TOKEN: payload?.settings?.TELEGRAM_BOT_TOKEN?.value || '',
     TELEGRAM_CHAT_ID: payload?.settings?.TELEGRAM_CHAT_ID?.value || '',
@@ -556,6 +560,7 @@ function App() {
     source_url: '',
     auto_post: false,
     target_page_id: '',
+    product_sheet_url: '',
     schedule_interval: 30,
     schedule_start_at: '',
   });
@@ -760,20 +765,35 @@ function App() {
     });
   });
 
-  const fetchDashboard = async () => {
+  const buildVideoQueryParams = () => {
+    const params = new URLSearchParams({ page: String(page), limit: '10' });
+    if (filters.status !== 'all') params.set('status', filters.status);
+    if (filters.campaignId !== 'all') params.set('campaign_id', filters.campaignId);
+    if (filters.sourcePlatform !== 'all') params.set('source_platform', filters.sourcePlatform);
+    return params;
+  };
+
+  const loadVideoQueue = async ({ silent = false } = {}) => {
+    if (!token) return;
+    try {
+      const params = buildVideoQueryParams();
+      const videosData = await requestJson(`${API_URL}/campaigns/videos?${params.toString()}`);
+      setVideos(videosData.videos || []);
+      setFilteredVideoTotal(videosData.total ?? 0);
+      setTotalPages(videosData.pages ?? 1);
+    } catch (error) {
+      if (!silent) showNotice('error', error.message);
+    }
+  };
+
+  const fetchDashboard = async ({ includeVideos = true } = {}) => {
     if (!token) return;
     setIsRefreshing(true);
     try {
       const meData = await requestJson(`${API_URL}/auth/me`);
-      const params = new URLSearchParams({ page: String(page), limit: '10' });
-      if (filters.status !== 'all') params.set('status', filters.status);
-      if (filters.campaignId !== 'all') params.set('campaign_id', filters.campaignId);
-      if (filters.sourcePlatform !== 'all') params.set('source_platform', filters.sourcePlatform);
-
-      const [campaignsData, statsData, videosData, fbData, logsData, conversationsData, systemData, healthData, taskData, eventData, workerData, userData] = await Promise.all([
+      const requests = [
         requestJson(`${API_URL}/campaigns/`),
         requestJson(`${API_URL}/campaigns/stats`),
-        requestJson(`${API_URL}/campaigns/videos?${params.toString()}`),
         requestJson(`${API_URL}/facebook/config`),
         requestJson(`${API_URL}/webhooks/logs`),
         requestJson(`${API_URL}/webhooks/conversations?limit=80`),
@@ -783,14 +803,41 @@ function App() {
         requestJson(`${API_URL}/system/events?limit=${SYSTEM_EVENT_FETCH_LIMIT}`),
         requestJson(`${API_URL}/system/workers`),
         meData?.role === 'admin' ? requestJson(`${API_URL}/users/`) : Promise.resolve({ users: [] }),
-      ]);
+      ];
+      if (includeVideos) {
+        const params = buildVideoQueryParams();
+        requests.splice(2, 0, requestJson(`${API_URL}/campaigns/videos?${params.toString()}`));
+      }
+
+      const payloads = await Promise.all(requests);
+      const [
+        campaignsData,
+        statsData,
+        ...restPayloads
+      ] = payloads;
+      const [
+        maybeVideosData,
+        fbData,
+        logsData,
+        conversationsData,
+        systemData,
+        healthData,
+        taskData,
+        eventData,
+        workerData,
+        userData,
+      ] = includeVideos
+        ? restPayloads
+        : [null, ...restPayloads];
 
       setCurrentUser(meData);
       setCampaigns(campaignsData);
       setStats(statsData);
-      setVideos(videosData.videos);
-      setFilteredVideoTotal(videosData.total ?? 0);
-      setTotalPages(videosData.pages);
+      if (includeVideos && maybeVideosData) {
+        setVideos(maybeVideosData.videos || []);
+        setFilteredVideoTotal(maybeVideosData.total ?? 0);
+        setTotalPages(maybeVideosData.pages ?? 1);
+      }
       setFbPages(fbData);
       setInteractions(logsData);
       setConversationList(conversationsData.conversations || []);
@@ -861,8 +908,16 @@ function App() {
 
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
-    fetchDashboard();
-    const interval = setInterval(fetchDashboard, AUTO_REFRESH_MS);
+    fetchDashboard({ includeVideos: false });
+    const interval = setInterval(() => fetchDashboard({ includeVideos: false }), AUTO_REFRESH_MS);
+    return () => clearInterval(interval);
+  }, [token]);
+  /* eslint-enable react-hooks/exhaustive-deps */
+
+  /* eslint-disable react-hooks/exhaustive-deps */
+  useEffect(() => {
+    loadVideoQueue();
+    const interval = setInterval(() => loadVideoQueue({ silent: true }), AUTO_REFRESH_MS);
     return () => clearInterval(interval);
   }, [token, page, filters.status, filters.campaignId, filters.sourcePlatform]);
   /* eslint-enable react-hooks/exhaustive-deps */
@@ -1093,6 +1148,7 @@ function App() {
         name: '',
         source_url: '',
         auto_post: false,
+        product_sheet_url: '',
         schedule_start_at: '',
       }));
       return payload;
