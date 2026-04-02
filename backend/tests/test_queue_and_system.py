@@ -137,11 +137,12 @@ def test_admin_can_update_runtime_config_and_webhook_uses_new_values(client, aut
             "TUNNEL_TOKEN": "runtime-tunnel-token",
             "GEMINI_API_KEY": "runtime-gemini-key",
             "OPENAI_API_KEY": "runtime-openai-key",
+            "ADMIN_PASSWORD": "RuntimeAdmin123",
         },
     )
     assert update_response.status_code == 200
     update_payload = update_response.json()
-    assert set(update_payload["changed_keys"]) >= {"BASE_URL", "FB_VERIFY_TOKEN", "FB_APP_SECRET", "TUNNEL_TOKEN", "GEMINI_API_KEY", "OPENAI_API_KEY"}
+    assert set(update_payload["changed_keys"]) >= {"BASE_URL", "FB_VERIFY_TOKEN", "FB_APP_SECRET", "TUNNEL_TOKEN", "GEMINI_API_KEY", "OPENAI_API_KEY", "ADMIN_PASSWORD"}
     assert update_payload["derived"]["webhook_url"] == "https://runtime.example.com/webhooks/fb"
 
     overview_response = client.get("/system/overview", headers=auth_headers)
@@ -167,6 +168,7 @@ def test_admin_can_update_runtime_config_and_webhook_uses_new_values(client, aut
     runtime_content = runtime_file.read_text(encoding="utf-8")
     assert "BASE_URL=https://runtime.example.com" in runtime_content
     assert "TUNNEL_TOKEN=runtime-tunnel-token" in runtime_content
+    assert "ADMIN_PASSWORD=RuntimeAdmin123" in runtime_content
 
 
 def test_admin_can_verify_tunnel_token_and_restart_tunnel_service(client, auth_headers, monkeypatch):

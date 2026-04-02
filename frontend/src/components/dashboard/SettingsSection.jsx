@@ -888,6 +888,16 @@ export default function SettingsSection({
                   </div>
                   <div className="mt-4 space-y-4">
                     <RuntimeFieldCard
+                      label="ADMIN_PASSWORD"
+                      description="Mật khẩu mặc định của tài khoản admin hệ thống. Khi bạn đổi mật khẩu admin hoặc reset admin, giá trị này cũng được đồng bộ lại vào runtime.env."
+                      helper={buildSettingHelper('ADMIN_PASSWORD', 'Chỉ nên dùng cho tài khoản admin mặc định. Không lưu mật khẩu các tài khoản khác ở đây.')}
+                      value={runtimeForm.ADMIN_PASSWORD}
+                      onChange={(event) => handleRuntimeFieldChange('ADMIN_PASSWORD', event.target.value)}
+                      placeholder="Mật khẩu admin mặc định"
+                      fieldClass={FIELD_CLASS}
+                      type="password"
+                    />
+                    <RuntimeFieldCard
                       label="TELEGRAM_BOT_TOKEN"
                       description="Bot token để hệ thống gửi cảnh báo hoặc thông báo vận hành sang Telegram."
                       helper={buildSettingHelper('TELEGRAM_BOT_TOKEN')}

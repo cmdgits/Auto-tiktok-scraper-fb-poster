@@ -58,13 +58,13 @@ export default function SecuritySection({
       </Panel>
 
       <Panel className="2xl:col-span-4" eyebrow="Đổi mật khẩu" title="Cập nhật thông tin đăng nhập">
-        <form onSubmit={handleChangePassword} className="space-y-4" autoComplete="off">
+        <form onSubmit={handleChangePassword} className="space-y-4" autoComplete="on">
           <label className="block space-y-2">
             <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Mật khẩu hiện tại</span>
             <input
               type="password"
-              name="security-current-password"
-              autoComplete="new-password"
+              name="current_password"
+              autoComplete="current-password"
               spellCheck="false"
               required
               className={FIELD_CLASS}
@@ -76,7 +76,7 @@ export default function SecuritySection({
             <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Mật khẩu mới</span>
             <input
               type="password"
-              name="security-new-password"
+              name="new_password"
               autoComplete="new-password"
               spellCheck="false"
               required

@@ -53,7 +53,6 @@ services:
     environment:
       - DATABASE_URL=postgresql://admin:adminpassword@db/social_auto
       - DOWNLOAD_DIR=/app/downloads
-      - ADMIN_PASSWORD=admin123
       - DEFAULT_ADMIN_USERNAME=admin
       - DEFAULT_ADMIN_DISPLAY_NAME=Quản trị viên
       - JWT_SECRET=
@@ -115,7 +114,6 @@ services:
     environment:
       - DATABASE_URL=postgresql://admin:adminpassword@db/social_auto
       - DOWNLOAD_DIR=/app/downloads
-      - ADMIN_PASSWORD=admin123
       - DEFAULT_ADMIN_USERNAME=admin
       - DEFAULT_ADMIN_DISPLAY_NAME=Quản trị viên
       - JWT_SECRET=

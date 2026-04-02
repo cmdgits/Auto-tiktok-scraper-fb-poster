@@ -4,10 +4,12 @@ from sqlalchemy.orm import Session
 import uuid
 
 from app.api.auth import require_admin, require_authenticated_user
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.models import User, UserRole
 from app.services.accounts import count_admin_users, create_user, generate_temporary_password, serialize_user
 from app.services.observability import record_event
+from app.services.runtime_settings import update_runtime_settings
 from app.services.security import hash_password
 
 router = APIRouter(prefix="/users", tags=["Người dùng"])
@@ -127,6 +129,14 @@ def reset_user_password(
     user.password_hash = hash_password(temporary_password)
     user.must_change_password = True
     db.commit()
+
+    if user.username == settings.DEFAULT_ADMIN_USERNAME:
+        update_runtime_settings(
+            db,
+            {"ADMIN_PASSWORD": temporary_password},
+            actor_user_id=str(admin_user.id),
+        )
+
     db.refresh(user)
 
     record_event(

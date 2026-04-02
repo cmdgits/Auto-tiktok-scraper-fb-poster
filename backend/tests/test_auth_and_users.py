@@ -1,4 +1,13 @@
+from pathlib import Path
+
+from app.services.runtime_settings import RUNTIME_ENV_FILE
+
+
 def test_login_me_and_change_password_flow(client):
+    runtime_file = Path(RUNTIME_ENV_FILE)
+    if runtime_file.exists():
+        runtime_file.unlink()
+
     login_response = client.post("/auth/login", json={"username": "admin", "password": "admin12345"})
     assert login_response.status_code == 200
     login_payload = login_response.json()
@@ -21,6 +30,9 @@ def test_login_me_and_change_password_flow(client):
     relogin_response = client.post("/auth/login", json={"username": "admin", "password": "Admin56789"})
     assert relogin_response.status_code == 200
     assert relogin_response.json()["user"]["must_change_password"] is False
+    assert runtime_file.exists() is True
+    runtime_content = runtime_file.read_text(encoding="utf-8")
+    assert "ADMIN_PASSWORD=Admin56789" in runtime_content
 
 
 def test_admin_can_create_list_and_reset_user(client, auth_headers):
@@ -79,6 +91,24 @@ def test_admin_can_delete_user(client, auth_headers):
     assert list_response.status_code == 200
     usernames = [user["username"] for user in list_response.json()["users"]]
     assert usernames == ["admin"]
+
+
+def test_reset_default_admin_password_updates_runtime_env(client, auth_headers):
+    runtime_file = Path(RUNTIME_ENV_FILE)
+    if runtime_file.exists():
+        runtime_file.unlink()
+
+    list_response = client.get("/users/", headers=auth_headers)
+    assert list_response.status_code == 200
+    admin_user = next(user for user in list_response.json()["users"] if user["username"] == "admin")
+
+    reset_response = client.post(f"/users/{admin_user['id']}/reset-password", headers=auth_headers)
+    assert reset_response.status_code == 200
+    temporary_password = reset_response.json()["temporary_password"]
+
+    assert runtime_file.exists() is True
+    runtime_content = runtime_file.read_text(encoding="utf-8")
+    assert f"ADMIN_PASSWORD={temporary_password}" in runtime_content
 
 
 def test_admin_cannot_delete_current_account(client, auth_headers):

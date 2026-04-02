@@ -91,6 +91,7 @@ const DEFAULT_RUNTIME_FORM = {
   TUNNEL_TOKEN: '',
   TELEGRAM_BOT_TOKEN: '',
   TELEGRAM_CHAT_ID: '',
+  ADMIN_PASSWORD: '',
 };
 
 function buildReplyAutomationDraft(pageItem) {
@@ -126,6 +127,7 @@ function extractRuntimeForm(payload) {
     TUNNEL_TOKEN: payload?.settings?.TUNNEL_TOKEN?.value || '',
     TELEGRAM_BOT_TOKEN: payload?.settings?.TELEGRAM_BOT_TOKEN?.value || '',
     TELEGRAM_CHAT_ID: payload?.settings?.TELEGRAM_CHAT_ID?.value || '',
+    ADMIN_PASSWORD: payload?.settings?.ADMIN_PASSWORD?.value || '',
   };
 }
 
@@ -1759,7 +1761,7 @@ function App() {
 
     const confirmed = await confirmAction({
       title: 'Xóa bình luận khỏi dashboard',
-      description: 'Hệ thống sẽ xóa bình luận này trực tiếp trên Facebook page trước, sau đó mới xóa bản ghi khỏi dashboard cùng các task liên quan chưa chạy.',
+      description: 'Hệ thống sẽ thử xóa bình luận này trên Facebook page trước. Nếu Facebook không cho xóa qua API, bản ghi trên dashboard và các task liên quan chưa chạy vẫn sẽ được gỡ.',
       confirmLabel: 'Xóa bình luận',
       tone: 'rose',
     });
@@ -1949,11 +1951,18 @@ function App() {
 
   const handleLogin = async (event) => {
     event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const username = String(formData.get('username') || loginUser || '').trim();
+    const password = String(formData.get('password') || loginPass || '');
+
+    setLoginUser(username);
+    setLoginPass(password);
+
     try {
       const response = await fetch(`${API_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: loginUser, password: loginPass }),
+        body: JSON.stringify({ username, password }),
       });
       const payload = await response.json();
       if (response.ok) {
@@ -1985,10 +1994,16 @@ function App() {
 
   const handleChangePassword = async (event) => {
     event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const current_password = String(formData.get('current_password') || passwordForm.current_password || '');
+    const new_password = String(formData.get('new_password') || passwordForm.new_password || '');
+
+    setPasswordForm({ current_password, new_password });
+
     const payload = await runAction('change-password', () => requestJson(`${API_URL}/auth/change-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(passwordForm),
+      body: JSON.stringify({ current_password, new_password }),
     }));
     if (payload) {
       setPasswordForm({ current_password: '', new_password: '' });

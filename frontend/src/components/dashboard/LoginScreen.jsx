@@ -68,11 +68,30 @@ export default function LoginScreen({
             <form onSubmit={handleLogin} className="mt-8 space-y-4">
               <label className="block space-y-2">
                 <span className="text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Tên đăng nhập</span>
-                <input type="text" required className={FIELD_CLASS} placeholder="Nhập tên đăng nhập" value={loginUser} onChange={(event) => setLoginUser(event.target.value)} />
+                <input
+                  type="text"
+                  name="username"
+                  autoComplete="username"
+                  required
+                  className={FIELD_CLASS}
+                  placeholder="Nhập tên đăng nhập"
+                  value={loginUser}
+                  onChange={(event) => setLoginUser(event.target.value)}
+                />
               </label>
               <label className="block space-y-2">
                 <span className="text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Mật khẩu</span>
-                <input type="password" required className={FIELD_CLASS} placeholder="••••••••" value={loginPass} onChange={(event) => setLoginPass(event.target.value)} />
+                <input
+                  type="password"
+                  name="password"
+                  autoComplete="current-password"
+                  spellCheck="false"
+                  required
+                  className={FIELD_CLASS}
+                  placeholder="••••••••"
+                  value={loginPass}
+                  onChange={(event) => setLoginPass(event.target.value)}
+                />
               </label>
               {loginError ? <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{loginError}</div> : null}
               <button type="submit" className={cx(BUTTON_PRIMARY, 'w-full')}>

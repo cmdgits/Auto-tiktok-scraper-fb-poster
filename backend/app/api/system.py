@@ -62,6 +62,7 @@ class RuntimeSettingsUpdateRequest(BaseModel):
     TUNNEL_TOKEN: str | None = Field(default=None)
     TELEGRAM_BOT_TOKEN: str | None = Field(default=None)
     TELEGRAM_CHAT_ID: str | None = Field(default=None)
+    ADMIN_PASSWORD: str | None = Field(default=None)
 
 
 class TunnelTokenVerifyRequest(BaseModel):

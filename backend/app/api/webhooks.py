@@ -65,6 +65,33 @@ class CommentReplyRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
 
 
+FACEBOOK_DELETE_NON_BLOCKING_ERRORS = (
+    "unsupported delete request",
+    "does not exist",
+    "missing permissions",
+    "does not support this operation",
+)
+
+
+def _extract_facebook_error_message(response: dict | None) -> str | None:
+    if not isinstance(response, dict):
+        return None
+    message = response.get("error")
+    if isinstance(message, str) and message.strip():
+        return message.strip()
+    nested = response.get("message")
+    if isinstance(nested, str) and nested.strip():
+        return nested.strip()
+    return None
+
+
+def _is_non_blocking_delete_error(message: str | None) -> bool:
+    normalized = (message or "").strip().lower()
+    if not normalized:
+        return False
+    return any(marker in normalized for marker in FACEBOOK_DELETE_NON_BLOCKING_ERRORS)
+
+
 def _resolve_base_url(db: Session) -> str:
     base_url = (resolve_runtime_value("BASE_URL", db=db) or settings.BASE_URL or "").strip().rstrip("/")
     if not base_url:
@@ -770,44 +797,73 @@ def delete_comment_interaction(
     current_user: User = Depends(require_authenticated_user),
 ):
     log = _get_interaction_log_or_404(db, interaction_log_id)
+    deleted_task_count = _delete_related_tasks_or_raise(
+        db,
+        entity_type="interaction_log",
+        entity_id=str(log.id),
+    )
     page_config = db.query(FacebookPage).filter(FacebookPage.page_id == log.page_id).first()
     if not page_config or not page_config.long_lived_access_token:
         raise HTTPException(status_code=400, detail="Trang Facebook chưa có Page Access Token hợp lệ để xóa bình luận.")
 
     access_token = decrypt_secret(page_config.long_lived_access_token)
     delete_response = delete_comment(log.comment_id, access_token)
-    if not delete_response or delete_response.get("error"):
+    delete_error_message = _extract_facebook_error_message(delete_response)
+    deleted_on_facebook = bool(delete_response and not delete_error_message)
+    deleted_page_reply_on_facebook = False
+    reply_delete_error_message = None
+
+    if not deleted_on_facebook and log.facebook_reply_comment_id:
+        reply_delete_response = delete_comment(log.facebook_reply_comment_id, access_token)
+        reply_delete_error_message = _extract_facebook_error_message(reply_delete_response)
+        deleted_page_reply_on_facebook = bool(reply_delete_response and not reply_delete_error_message)
+
+    if (
+        not deleted_on_facebook
+        and not deleted_page_reply_on_facebook
+        and not _is_non_blocking_delete_error(delete_error_message)
+        and not _is_non_blocking_delete_error(reply_delete_error_message)
+    ):
         raise HTTPException(
             status_code=502,
-            detail=delete_response.get("error") if isinstance(delete_response, dict) else "Không thể xóa bình luận trên Facebook.",
+            detail=reply_delete_error_message or delete_error_message or "Không thể xóa bình luận trên Facebook.",
         )
 
-    deleted_task_count = _delete_related_tasks_or_raise(
-        db,
-        entity_type="interaction_log",
-        entity_id=str(log.id),
-    )
     comment_id = log.comment_id
     page_id = log.page_id
+    facebook_reply_comment_id = log.facebook_reply_comment_id
     db.delete(log)
     db.commit()
 
+    event_message = "Đã xóa bình luận trên Facebook và khỏi dashboard."
+    response_message = "Đã xóa bình luận trên Facebook page và khỏi dashboard."
+    if not deleted_on_facebook and deleted_page_reply_on_facebook:
+        event_message = "Facebook không cho xóa comment gốc qua API, nhưng đã xóa reply của page và gỡ bản ghi khỏi dashboard."
+        response_message = event_message
+    elif not deleted_on_facebook:
+        event_message = "Facebook không cho xóa comment này qua API, nhưng đã gỡ bản ghi khỏi dashboard."
+        response_message = event_message
+
     record_event(
         "webhook",
-        "info",
-        "Đã xóa bình luận trên Facebook và khỏi dashboard.",
+        "warning" if not deleted_on_facebook else "info",
+        event_message,
         db=db,
         actor_user_id=str(current_user.id),
         details={
             "interaction_log_id": interaction_log_id,
             "comment_id": comment_id,
             "page_id": page_id,
+            "facebook_reply_comment_id": facebook_reply_comment_id,
             "deleted_task_count": deleted_task_count,
+            "deleted_on_facebook": deleted_on_facebook,
+            "deleted_page_reply_on_facebook": deleted_page_reply_on_facebook,
+            "facebook_delete_error": delete_error_message,
+            "facebook_reply_delete_error": reply_delete_error_message,
         },
     )
 
-    return {"message": "Đã xóa bình luận trên Facebook page và khỏi dashboard."}
-
+    return {"message": response_message}
 
 @router.patch("/comments/{interaction_log_id}")
 def update_comment_interaction(

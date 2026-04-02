@@ -120,6 +120,7 @@ CAPTION_FALLBACK_HASHTAGS = (
     "khampha",
     "reelsviet",
 )
+VIETNAMESE_DIACRITIC_RE = re.compile(r"[À-ỹ]")
 
 def _merge_prompt_instructions(default_prompt: str, prompt_override: str | None = None) -> str:
     extra_prompt = (prompt_override or "").strip()
@@ -184,6 +185,10 @@ def _extract_caption_keywords(text: str, *, limit: int = 4) -> list[str]:
     return keywords
 
 
+def _caption_has_meaningful_source(original_caption: str) -> bool:
+    return len(_extract_caption_keywords(original_caption, limit=3)) >= 2
+
+
 def _truncate_caption_words(text: str, *, limit: int) -> str:
     words = _normalize_text(text).split()
     if not words:
@@ -232,33 +237,61 @@ def _build_facebook_hashtags(original_caption: str, ai_text: str | None = None, 
     return " ".join(f"#{item}" for item in hashtag_tokens)
 
 
-def _build_caption_cta(original_caption: str) -> str:
+def _caption_matches_topic(original_caption: str, *keywords: str) -> bool:
     normalized = _slugify_caption_token(original_caption)
-    if any(token in normalized for token in ("meo", "tip", "cach", "huongdan")):
-        return "Luu lai de xem lai khi can va xem het clip nhe."
-    if any(token in normalized for token in ("review", "danhgia", "test", "thudo")):
-        return "Xem het clip roi de lai cam nhan cua ban nhe."
-    return "Xem het clip roi ke minh nghe doan nao cuon nhat nha."
+    return any(keyword in normalized for keyword in keywords)
+
+
+def _build_caption_hook(original_caption: str) -> str:
+    if not _caption_has_meaningful_source(original_caption):
+        return "Lướt tới đây mà bỏ qua thì hơi phí đó nha."
+    if _caption_matches_topic(original_caption, "meo", "tip", "cach", "huongdan"):
+        return "Mẹo này xem một lần là muốn áp dụng liền luôn đó."
+    if _caption_matches_topic(original_caption, "review", "danhgia", "test", "thudo"):
+        return "Review nhẹ nhàng thôi mà xem cuốn phết đó nha."
+    if _caption_matches_topic(original_caption, "lamdep", "makeup", "skincare", "thoitrang", "phoido"):
+        return "Ai mê mấy nội dung này chắc sẽ dừng lại xem hết clip đó."
+    if _caption_matches_topic(original_caption, "hai", "cuoi", "giaitri", "funny"):
+        return "Khúc đầu tưởng bình thường mà càng xem càng cuốn luôn á."
+    return "Clip này xem mượt lắm, càng coi càng muốn xem tiếp đó."
+
+
+def _build_caption_cta(original_caption: str) -> str:
+    if not _caption_has_meaningful_source(original_caption):
+        return "Ở lại xem hết clip rồi nói mình nghe cảm giác đầu tiên của bạn nha."
+    if _caption_matches_topic(original_caption, "meo", "tip", "cach", "huongdan"):
+        return "Xem hết clip rồi lưu lại để dùng khi cần nhé."
+    if _caption_matches_topic(original_caption, "review", "danhgia", "test", "thudo"):
+        return "Xem hết clip rồi để lại cảm nhận của bạn nhé."
+    if _caption_matches_topic(original_caption, "lamdep", "makeup", "skincare", "thoitrang", "phoido"):
+        return "Xem hết clip rồi nói mình nghe bạn chấm mấy điểm nha."
+    return "Xem hết clip rồi kể mình nghe đoạn nào cuốn nhất nha."
+
+
+def _build_caption_middle_line(original_caption: str) -> str:
+    if not _caption_has_meaningful_source(original_caption):
+        return "Đôi khi chỉ cần một clip đúng mood là đủ khiến mình xem tới cuối luôn á."
+    if _caption_matches_topic(original_caption, "meo", "tip", "cach", "huongdan"):
+        return "Có một chi tiết nhỏ nhưng xem xong là nhớ liền, khá đáng để lưu lại đó."
+    if _caption_matches_topic(original_caption, "review", "danhgia", "test", "thudo"):
+        return "Cách chia sẻ khá thật và gọn nên xem không bị mệt chút nào."
+    if _caption_matches_topic(original_caption, "lamdep", "makeup", "skincare", "thoitrang", "phoido"):
+        return "Nhìn tổng thể rất ổn, nhất là đoạn chuyển vibe ở giữa clip khá hút mắt."
+    if _caption_matches_topic(original_caption, "hai", "cuoi", "giaitri", "funny"):
+        return "Coi tới đoạn sau mới thấy cái duyên của clip nằm ở chỗ đó luôn."
+    return "Có một nhịp khá cuốn nên càng xem lại càng muốn biết đoạn sau sẽ thế nào."
 
 
 def _build_caption_fallback(original_caption: str) -> str:
-    cleaned_source = _clean_caption_source_text(original_caption)
-    short_lead = _truncate_caption_words(cleaned_source, limit=12)
-    if short_lead:
-        hook = _sentence_case_text(short_lead)
-        if hook[-1] not in ".!?":
-            hook = f"{hook}."
-    else:
-        hook = "Xem thu clip nay nha."
-
-    detail_seed = _truncate_caption_words(cleaned_source, limit=18)
-    if detail_seed and detail_seed.lower() not in hook.lower():
-        detail = f"{_sentence_case_text(detail_seed)} {_build_caption_cta(cleaned_source)}"
-    else:
-        detail = _build_caption_cta(cleaned_source)
-
+    hook = _build_caption_hook(original_caption)
+    detail = _build_caption_middle_line(original_caption)
+    cta = _build_caption_cta(original_caption)
     hashtags = _build_facebook_hashtags(original_caption)
-    return f"{hook}\n{detail}\n\n{hashtags}".strip()
+    return f"{hook}\n{detail}\n{cta}\n\n{hashtags}".strip()
+
+
+def _looks_like_vietnamese_with_diacritics(text: str) -> bool:
+    return bool(VIETNAMESE_DIACRITIC_RE.search(text or ""))
 
 
 def _sanitize_generated_caption(generated_caption: str, original_caption: str) -> str:
@@ -273,6 +306,9 @@ def _sanitize_generated_caption(generated_caption: str, original_caption: str) -
             body_lines.append(line)
 
     if not body_lines:
+        return fallback
+
+    if not _looks_like_vietnamese_with_diacritics(" ".join(body_lines)):
         return fallback
 
     if len(body_lines) == 1:
@@ -930,7 +966,7 @@ def _generate_with_ai(
     return fallback
 
 
-def generate_caption(original_caption: str) -> str:
+def generate_caption_legacy_prompt(original_caption: str) -> str:
     prompt = f"""Bạn là Trùm Copywriter chuyên viral content Facebook. Mệnh lệnh bắt buộc:
 1. Viết lại caption sao cho kịch tính, thú vị, xài emoji hợp lý, độ dài 50-100 từ.
 2. Ngay lập tức loại bỏ toàn bộ hashtag cũ trong caption gốc.
@@ -946,13 +982,17 @@ def generate_caption(original_caption: str) -> str:
     prompt = f"""You are a Facebook Reels copywriter.
 Mandatory rules:
 1. Rewrite the original caption into a Facebook-first caption with 2-3 short lines only.
-2. Line 1 must be a short hook or title that makes viewers want to watch.
-3. Add one short viewer prompt or curiosity line based on the original caption.
-4. Remove every old hashtag from the source caption.
-5. Add 4-5 relevant hashtags for Facebook only.
-6. Never use TikTok-specific hashtags or phrases such as #tiktok, #fyp, #xuhuong, #douyin, #foryou.
-7. Keep the meaning close to the original caption. Do not invent new facts.
-8. Do not explain your process. Return caption text only.
+2. The opening line must feel smooth, natural, and slightly curiosity-driven, not stiff or robotic.
+3. If the original caption has real substance, stay close to it and creatively remix that same idea instead of inventing a different topic.
+4. If the original caption is empty, too short, too vague, or has no real content, create a plausible Facebook-style caption yourself.
+5. Add one short viewer prompt or curiosity line based on the original caption when possible.
+6. Remove every old hashtag from the source caption.
+7. Add 4-5 relevant hashtags for Facebook only.
+8. Never use TikTok-specific hashtags or phrases such as #tiktok, #fyp, #xuhuong, #douyin, #foryou.
+9. Keep the meaning close to the original caption. Do not invent new facts.
+10. Write in natural Vietnamese with full diacritics.
+11. Never write Vietnamese without diacritics.
+12. Do not explain your process. Return caption text only.
 
 Original caption:
 {original_caption}"""
