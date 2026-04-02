@@ -174,7 +174,6 @@ services:
     restart: unless-stopped
     stop_grace_period: 20s
     logging: *default-logging
-    network_mode: "service:backend"
     env_file:
       - path: ./backend/runtime.env.example
         required: true
