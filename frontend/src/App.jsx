@@ -85,6 +85,7 @@ const DEFAULT_RUNTIME_FORM = {
   FB_VERIFY_TOKEN: '',
   FB_APP_SECRET: '',
   GEMINI_API_KEY: '',
+  OPENAI_API_KEY: '',
   TUNNEL_TOKEN: '',
   TELEGRAM_BOT_TOKEN: '',
   TELEGRAM_CHAT_ID: '',
@@ -92,10 +93,18 @@ const DEFAULT_RUNTIME_FORM = {
 
 function buildReplyAutomationDraft(pageItem) {
   return {
+    ai_agent_name: pageItem?.ai_agent_name || '',
     comment_auto_reply_enabled: pageItem?.comment_auto_reply_enabled ?? true,
+    ai_knowledge_base: pageItem?.ai_knowledge_base || '',
     comment_ai_prompt: pageItem?.comment_ai_prompt || '',
     message_auto_reply_enabled: pageItem?.message_auto_reply_enabled ?? false,
     message_ai_prompt: pageItem?.message_ai_prompt || '',
+    message_history_turn_limit: pageItem?.message_history_turn_limit ?? 5,
+    message_reply_min_delay_seconds: pageItem?.message_reply_min_delay_seconds ?? 3,
+    message_reply_max_delay_seconds: pageItem?.message_reply_max_delay_seconds ?? 5,
+    message_typing_indicator_enabled: pageItem?.message_typing_indicator_enabled ?? true,
+    handoff_keywords: pageItem?.handoff_keywords || '',
+    negative_keywords: pageItem?.negative_keywords || '',
     message_reply_schedule_enabled: pageItem?.message_reply_schedule_enabled ?? false,
     message_reply_start_time: pageItem?.message_reply_start_time || '08:00',
     message_reply_end_time: pageItem?.message_reply_end_time || '22:00',
@@ -109,6 +118,7 @@ function extractRuntimeForm(payload) {
     FB_VERIFY_TOKEN: payload?.settings?.FB_VERIFY_TOKEN?.value || '',
     FB_APP_SECRET: payload?.settings?.FB_APP_SECRET?.value || '',
     GEMINI_API_KEY: payload?.settings?.GEMINI_API_KEY?.value || '',
+    OPENAI_API_KEY: payload?.settings?.OPENAI_API_KEY?.value || '',
     TUNNEL_TOKEN: payload?.settings?.TUNNEL_TOKEN?.value || '',
     TELEGRAM_BOT_TOKEN: payload?.settings?.TELEGRAM_BOT_TOKEN?.value || '',
     TELEGRAM_CHAT_ID: payload?.settings?.TELEGRAM_CHAT_ID?.value || '',
@@ -332,6 +342,7 @@ function getConversationStatusMeta(status) {
 }
 
 function buildConversationTimeline(logs) {
+  const logMap = Object.fromEntries(logs.map((log) => [log.id, log]));
   const events = [];
   logs.forEach((log) => {
     const customerText = (log.user_message || '').trim();
@@ -344,14 +355,17 @@ function buildConversationTimeline(logs) {
         time: log.created_at,
         sourceLabel: log.sender_name || 'Khách hàng',
         status: log.status,
-        canPrepareCorrection: false,
+        canReply: true,
       });
     }
 
     const replyText = (log.ai_reply || '').trim();
-    const shouldShowReply = replyText && (log.status === 'replied' || log.facebook_reply_message_id || log.reply_source);
+    const hasAttachment = Boolean(log.attachment_url && log.attachment_type);
+    const shouldShowReply = (replyText || hasAttachment) && (log.status === 'replied' || log.facebook_reply_message_id || log.reply_source);
     if (shouldShowReply) {
       const isOperator = log.reply_source === 'operator';
+      const replyToLog = log.reply_to_message_log_id ? logMap[log.reply_to_message_log_id] : null;
+      const replyToText = (replyToLog?.user_message || '').trim();
       events.push({
         id: `${log.id}-reply`,
         logId: log.id,
@@ -360,7 +374,20 @@ function buildConversationTimeline(logs) {
         time: log.updated_at || log.created_at,
         sourceLabel: isOperator ? (log.reply_author?.display_name || 'Operator') : 'AI fanpage',
         status: log.status,
-        canPrepareCorrection: true,
+        canReply: false,
+        replyTo: replyToText
+          ? {
+            sourceLabel: replyToLog?.sender_name || 'Khách hàng',
+            text: replyToText,
+          }
+          : null,
+        attachment: hasAttachment
+          ? {
+            type: log.attachment_type,
+            name: log.attachment_name,
+            url: log.attachment_url,
+          }
+          : null,
       });
     }
   });
@@ -582,12 +609,15 @@ function App() {
   const [engagementFilter, setEngagementFilter] = useState('all');
   const [conversationStatusFilter, setConversationStatusFilter] = useState('all');
   const [manualReplyDraft, setManualReplyDraft] = useState('');
+  const [selectedReplyTargetId, setSelectedReplyTargetId] = useState(null);
+  const [selectedReplyAttachment, setSelectedReplyAttachment] = useState(null);
   const [conversationNoteDraft, setConversationNoteDraft] = useState('');
   const [conversationAssigneeDraft, setConversationAssigneeDraft] = useState('');
   const [pendingOperatorComposerId, setPendingOperatorComposerId] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(null);
   const manualReplyPanelRef = useRef(null);
   const manualReplyInputRef = useRef(null);
+  const manualReplyAttachmentInputRef = useRef(null);
   const confirmResolverRef = useRef(null);
 
   const isAdmin = currentUser?.role === 'admin';
@@ -666,6 +696,7 @@ function App() {
     : conversationList.filter((conversation) => conversation.status === conversationStatusFilter);
   const selectedConversationStatusMeta = getConversationStatusMeta(selectedConversation?.status);
   const selectedConversationTimeline = buildConversationTimeline(selectedConversationLogs);
+  const selectedReplyTarget = selectedConversationLogs.find((log) => log.id === selectedReplyTargetId) || null;
   const assignableUsers = isAdmin ? users.filter((user) => user.is_active) : (currentUser ? [currentUser] : []);
   const allDiscoveredSelected = discoveredFbPages.length > 0
     && selectedDiscoveredPageIds.length === discoveredFbPages.length;
@@ -986,6 +1017,8 @@ function App() {
       setConversationNoteDraft('');
       setConversationAssigneeDraft('');
       setManualReplyDraft('');
+      setSelectedReplyTargetId(null);
+      setSelectedReplyAttachment(null);
       return;
     }
 
@@ -995,6 +1028,18 @@ function App() {
         || (!isAdmin && currentUser?.id ? currentUser.id : ''),
     );
   }, [selectedConversation, isAdmin, currentUser?.id]);
+
+  useEffect(() => () => {
+    if (selectedReplyAttachment?.preview_url?.startsWith('blob:')) {
+      URL.revokeObjectURL(selectedReplyAttachment.preview_url);
+    }
+  }, [selectedReplyAttachment]);
+
+  useEffect(() => {
+    if (!selectedReplyTargetId) return;
+    const stillExists = selectedConversationLogs.some((log) => log.id === selectedReplyTargetId && (log.user_message || '').trim());
+    if (!stillExists) setSelectedReplyTargetId(null);
+  }, [selectedReplyTargetId, selectedConversationLogs]);
 
   useEffect(() => {
     if (
@@ -1413,33 +1458,51 @@ function App() {
     }
 
     const message = manualReplyDraft.trim();
-    if (message.length < 2) {
+    if (!selectedReplyAttachment && message.length < 2) {
       showNotice('error', 'Nội dung phản hồi cần ít nhất 2 ký tự.');
       return;
     }
 
-    const payload = await runAction(`conversation-reply-${selectedConversationId}`, () => requestJson(`${API_URL}/webhooks/conversations/${selectedConversationId}/reply`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, mark_resolved: markResolved }),
-    }));
+    const payload = await runAction(`conversation-reply-${selectedConversationId}`, () => {
+      if (selectedReplyAttachment?.file) {
+        const formData = new FormData();
+        formData.append('attachment', selectedReplyAttachment.file);
+        formData.append('message', message);
+        formData.append('mark_resolved', String(markResolved));
+        if (selectedReplyTargetId) formData.append('reply_to_message_log_id', selectedReplyTargetId);
+        return requestJson(`${API_URL}/webhooks/conversations/${selectedConversationId}/reply-attachment`, {
+          method: 'POST',
+          body: formData,
+        });
+      }
+
+      return requestJson(`${API_URL}/webhooks/conversations/${selectedConversationId}/reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message,
+          mark_resolved: markResolved,
+          reply_to_message_log_id: selectedReplyTargetId || null,
+        }),
+      });
+    });
     if (payload?.conversation) {
       setManualReplyDraft('');
+      setSelectedReplyTargetId(null);
+      setSelectedReplyAttachment(null);
       await loadConversationDetail(selectedConversationId, { silent: true });
     }
   };
 
-  const handlePrepareMessageCorrection = async (event) => {
-    const draftText = (event?.text || '').trim();
-    if (!draftText) {
-      showNotice('error', 'Không tìm thấy nội dung phản hồi cũ để nạp lại.');
+  const handleReplyToMessage = async (event) => {
+    if (!event?.logId) {
+      showNotice('error', 'Không tìm thấy tin nhắn để trả lời.');
       return;
     }
-
-    setManualReplyDraft(draftText);
+    setSelectedReplyTargetId(event.logId);
 
     if (!selectedConversationId || !selectedConversation) {
-      showNotice('success', 'Đã nạp nội dung cũ vào khung phản hồi.');
+      showNotice('success', 'Đã chọn tin nhắn để trả lời.');
       return;
     }
 
@@ -1447,15 +1510,50 @@ function App() {
       await handleConversationStatusChange(
         selectedConversationId,
         'operator_active',
-        'Đã chuyển cho operator để chỉnh lại nội dung phản hồi.',
+        'Đã chuyển cho operator để trả lời đúng tin nhắn đã chọn.',
       );
-      showNotice('success', 'Đã nạp nội dung cũ. Hệ thống sẽ chuyển sang operator để bạn sửa và gửi một tin nhắn đính chính mới.');
+      showNotice('success', 'Đã chọn tin nhắn để trả lời. Hệ thống sẽ chuyển sang operator để bạn phản hồi đúng ngữ cảnh.');
       return;
     }
 
     manualReplyPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     manualReplyInputRef.current?.focus();
-    showNotice('success', 'Đã nạp nội dung cũ vào khung phản hồi để bạn sửa và gửi tin nhắn đính chính mới.');
+    showNotice('success', 'Đã chọn tin nhắn để trả lời.');
+  };
+
+  const handleReplyTargetClear = () => setSelectedReplyTargetId(null);
+
+  const handleAppendEmoji = (emoji) => {
+    setManualReplyDraft((current) => `${current || ''}${emoji}`);
+    manualReplyInputRef.current?.focus();
+  };
+
+  const handleReplyAttachmentPick = () => {
+    manualReplyAttachmentInputRef.current?.click();
+  };
+
+  const handleReplyAttachmentChange = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (file.size > 25 * 1024 * 1024) {
+      showNotice('error', 'Attachment vượt quá giới hạn 25MB.');
+      event.target.value = '';
+      return;
+    }
+    const kind = file.type?.startsWith('image/') ? 'image' : 'file';
+    setSelectedReplyAttachment({
+      file,
+      name: file.name,
+      size: file.size,
+      type: file.type || 'application/octet-stream',
+      kind,
+      preview_url: kind === 'image' ? URL.createObjectURL(file) : '',
+    });
+    event.target.value = '';
+  };
+
+  const handleReplyAttachmentClear = () => {
+    setSelectedReplyAttachment(null);
   };
 
   const handleConversationRemove = async (conversation) => {
@@ -2071,6 +2169,8 @@ function App() {
         selectedConversationStatusMeta,
         selectedConversationTimeline,
         selectedConversationLogs,
+        selectedReplyTarget,
+        selectedReplyAttachment,
         isAdmin,
         assignableUsers,
         conversationAssigneeDraft,
@@ -2096,7 +2196,12 @@ function App() {
         handleConversationMetaSave,
         setManualReplyDraft,
         handleManualReply,
-        handlePrepareMessageCorrection,
+        handleReplyToMessage,
+        handleReplyTargetClear,
+        handleAppendEmoji,
+        handleReplyAttachmentPick,
+        handleReplyAttachmentChange,
+        handleReplyAttachmentClear,
         handleDeleteMessageLog,
       }}
       helpers={{
@@ -2119,6 +2224,7 @@ function App() {
       refs={{
         manualReplyPanelRef,
         manualReplyInputRef,
+        manualReplyAttachmentInputRef,
       }}
     />
   );

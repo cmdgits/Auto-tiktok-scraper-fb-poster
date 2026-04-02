@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 import os
+import random
+import time
 import uuid
 
 from sqlalchemy import func
@@ -21,8 +23,7 @@ from app.models.models import (
     Video,
     VideoStatus,
 )
-from app.services.ai_generator import generate_message_reply_with_context, generate_reply
-from app.services.fb_graph import reply_to_comment, send_page_message
+from app.services.fb_graph import reply_to_comment, send_page_message, send_page_sender_action
 from app.services.inbox_memory import (
     apply_conversation_ai_state,
     get_or_create_inbox_conversation,
@@ -31,8 +32,10 @@ from app.services.inbox_memory import (
     touch_conversation_with_customer_message,
 )
 from app.services.observability import record_event
+from app.services.page_reply_engine import build_comment_reply_plan, build_message_reply_plan
 from app.services.security import decrypt_secret
 from app.services.source_resolver import SourceResolutionError, resolve_content_source
+from app.services.telegram_bot import notify_telegram
 from app.services.ytdlp_crawler import download_video, extract_source_entries
 
 
@@ -116,6 +119,16 @@ def build_source_page_publish_time(
             if queue_safe_start > start_time:
                 start_time = queue_safe_start
     return start_time
+
+
+def _compute_message_reply_delay(page_config: FacebookPage) -> float:
+    min_delay = max(0, int(page_config.message_reply_min_delay_seconds or 0))
+    max_delay = max(0, int(page_config.message_reply_max_delay_seconds or 0))
+    if max_delay < min_delay:
+        max_delay = min_delay
+    if min_delay == max_delay:
+        return float(min_delay)
+    return round(random.uniform(min_delay, max_delay), 2)
 
 
 def retry_video_download(video_id: str) -> dict:
@@ -365,11 +378,12 @@ def reply_to_comment_job(interaction_log_id: str) -> dict:
             return {"ok": False, "log_id": interaction_log_id}
 
         access_token = decrypt_secret(page_config.long_lived_access_token)
-        ai_reply = generate_reply(
-            log.user_message,
-            channel="comment",
-            prompt_override=page_config.comment_ai_prompt,
+        reply_plan = build_comment_reply_plan(
+            db,
+            page_config=page_config,
+            user_message=log.user_message,
         )
+        ai_reply = reply_plan["reply"]
         log.ai_reply = ai_reply
 
         res = reply_to_comment(log.comment_id, ai_reply, access_token)
@@ -472,10 +486,12 @@ def reply_to_message_job(message_log_id: str) -> dict:
             page_id=log.page_id,
             sender_id=log.sender_id,
             exclude_log_id=log.id,
+            max_turns=page_config.message_history_turn_limit or 5,
         )
-        ai_payload = generate_message_reply_with_context(
-            log.user_message,
-            prompt_override=page_config.message_ai_prompt,
+        ai_payload = build_message_reply_plan(
+            db,
+            page_config=page_config,
+            user_message=log.user_message,
             conversation_summary=conversation.conversation_summary,
             recent_turns=recent_turns,
             customer_facts=normalize_customer_facts(conversation.customer_facts),
@@ -498,6 +514,23 @@ def reply_to_message_job(message_log_id: str) -> dict:
         )
         db.commit()
 
+        if conversation.needs_human_handoff:
+            notify_telegram(
+                (
+                    f"[Inbox handoff]\n"
+                    f"Page: {page_config.page_name or page_config.page_id}\n"
+                    f"Sender: {log.sender_name or log.sender_id}\n"
+                    f"Message: {log.user_message or ''}\n"
+                    f"Reason: {conversation.handoff_reason or 'Customer needs human support.'}"
+                )
+            )
+
+        delay_seconds = _compute_message_reply_delay(page_config)
+        if page_config.message_typing_indicator_enabled:
+            send_page_sender_action(log.sender_id, "typing_on", access_token)
+        if delay_seconds > 0:
+            time.sleep(delay_seconds)
+
         res = send_page_message(log.sender_id, ai_reply, access_token)
         if res and ("message_id" in res or "recipient_id" in res):
             log.status = InteractionStatus.replied
@@ -511,7 +544,13 @@ def reply_to_message_job(message_log_id: str) -> dict:
                 "info",
                 "Đã phản hồi tin nhắn inbox thành công.",
                 db=db,
-                details={"page_id": log.page_id, "sender_id": log.sender_id, "message_id": log.facebook_message_id},
+                details={
+                    "page_id": log.page_id,
+                    "sender_id": log.sender_id,
+                    "message_id": log.facebook_message_id,
+                    "reply_delay_seconds": delay_seconds,
+                    "typing_indicator_enabled": page_config.message_typing_indicator_enabled,
+                },
             )
         else:
             log.status = InteractionStatus.failed

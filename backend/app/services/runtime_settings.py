@@ -14,25 +14,31 @@ RUNTIME_ENV_FILE = Path(__file__).resolve().parents[2] / "runtime.env"
 RUNTIME_SETTING_SPECS = {
     "BASE_URL": {
         "label": "BASE_URL",
-        "description": "URL công khai của hệ thống",
+        "description": "URL cong khai cua he thong",
         "is_secret": False,
         "requires_restart": False,
     },
     "FB_VERIFY_TOKEN": {
         "label": "FB_VERIFY_TOKEN",
-        "description": "Mã xác minh webhook Facebook",
+        "description": "Ma xac minh webhook Facebook",
         "is_secret": False,
         "requires_restart": False,
     },
     "FB_APP_SECRET": {
         "label": "FB_APP_SECRET",
-        "description": "App secret để xác minh chữ ký webhook",
+        "description": "App secret de xac minh chu ky webhook",
         "is_secret": True,
         "requires_restart": False,
     },
     "GEMINI_API_KEY": {
         "label": "GEMINI_API_KEY",
-        "description": "Khóa Gemini để sinh caption và trả lời",
+        "description": "Khoa Gemini de sinh caption va tra loi",
+        "is_secret": True,
+        "requires_restart": False,
+    },
+    "OPENAI_API_KEY": {
+        "label": "OPENAI_API_KEY",
+        "description": "Khoa OpenAI GPT de thay the khi Gemini loi hoac het quota",
         "is_secret": True,
         "requires_restart": False,
     },
@@ -44,25 +50,25 @@ RUNTIME_SETTING_SPECS = {
     },
     "TELEGRAM_BOT_TOKEN": {
         "label": "TELEGRAM_BOT_TOKEN",
-        "description": "Bot Token để nhận thông báo từ Telegram",
+        "description": "Bot Token de nhan thong bao tu Telegram",
         "is_secret": True,
         "requires_restart": False,
     },
     "TELEGRAM_CHAT_ID": {
         "label": "TELEGRAM_CHAT_ID",
-        "description": "Chat ID (Người dùng hoặc Nhóm) để gửi thông báo",
+        "description": "Chat ID de gui thong bao",
         "is_secret": False,
         "requires_restart": False,
     },
     "ADMIN_PASSWORD": {
-        "label": "Mật khẩu Admin mặc định",
-        "description": "Mật khẩu cho tài khoản quản trị hệ thống",
+        "label": "Mat khau Admin mac dinh",
+        "description": "Mat khau cho tai khoan quan tri he thong",
         "is_secret": True,
         "requires_restart": False,
     },
     "DEFAULT_ADMIN_USERNAME": {
-        "label": "Tên đăng nhập Admin mặc định",
-        "description": "Tên đăng nhập cho tài khoản quản trị hệ thống",
+        "label": "Ten dang nhap Admin mac dinh",
+        "description": "Ten dang nhap cho tai khoan quan tri he thong",
         "is_secret": False,
         "requires_restart": False,
     },
@@ -165,8 +171,8 @@ def write_runtime_env_file(db: Session) -> None:
     resolved_values = {key: resolve_runtime_value(key, db=db) for key in RUNTIME_SETTING_SPECS}
     pages = db.query(FacebookPage).order_by(FacebookPage.page_id.asc()).all()
     lines = [
-        "# Tự sinh từ dashboard quản trị",
-        "# Khởi động lại service liên quan sau khi thay đổi nếu cần",
+        "# Auto-generated from admin dashboard",
+        "# Restart related services after changing values if needed",
     ]
     for key in RUNTIME_SETTING_SPECS:
         value = _encode_runtime_env_value(resolved_values[key])

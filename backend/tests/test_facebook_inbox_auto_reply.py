@@ -70,9 +70,16 @@ def test_can_save_page_automation_settings(client, auth_headers, monkeypatch):
         "/facebook/config/page-1/automation",
         headers=auth_headers,
         json={
+            "ai_agent_name": "Linh",
             "comment_auto_reply_enabled": True,
             "comment_ai_prompt": "Trả lời bình luận thật vui vẻ.",
             "message_auto_reply_enabled": True,
+            "message_history_turn_limit": 4,
+            "message_reply_min_delay_seconds": 3,
+            "message_reply_max_delay_seconds": 5,
+            "message_typing_indicator_enabled": True,
+            "handoff_keywords": "quản lý, người thật",
+            "negative_keywords": "bực, lỗi",
             "message_ai_prompt": "Trả lời inbox như tư vấn viên bán hàng.",
             "message_reply_schedule_enabled": True,
             "message_reply_start_time": "08:30",
@@ -82,6 +89,13 @@ def test_can_save_page_automation_settings(client, auth_headers, monkeypatch):
     )
     assert update_response.status_code == 200
     payload = update_response.json()
+    assert payload["page"]["ai_agent_name"] == "Linh"
+    assert payload["page"]["message_history_turn_limit"] == 4
+    assert payload["page"]["message_reply_min_delay_seconds"] == 3
+    assert payload["page"]["message_reply_max_delay_seconds"] == 5
+    assert payload["page"]["message_typing_indicator_enabled"] is True
+    assert payload["page"]["handoff_keywords"] == "quản lý, người thật"
+    assert payload["page"]["negative_keywords"] == "bực, lỗi"
     assert payload["page"]["comment_ai_prompt"] == "Trả lời bình luận thật vui vẻ."
     assert payload["page"]["message_auto_reply_enabled"] is True
     assert payload["page"]["message_ai_prompt"] == "Trả lời inbox như tư vấn viên bán hàng."
@@ -93,6 +107,8 @@ def test_can_save_page_automation_settings(client, auth_headers, monkeypatch):
     config_response = client.get("/facebook/config", headers=auth_headers)
     assert config_response.status_code == 200
     page_payload = config_response.json()[0]
+    assert page_payload["ai_agent_name"] == "Linh"
+    assert page_payload["message_history_turn_limit"] == 4
     assert page_payload["comment_auto_reply_enabled"] is True
     assert page_payload["message_auto_reply_enabled"] is True
     assert page_payload["message_reply_schedule_enabled"] is True
@@ -375,6 +391,9 @@ def test_webhook_message_event_creates_message_log_and_task_when_enabled(client,
         page_name="Trang bật inbox",
         long_lived_access_token=encrypt_secret("page-token-enabled"),
         message_auto_reply_enabled=True,
+        message_reply_min_delay_seconds=3,
+        message_reply_max_delay_seconds=5,
+        message_typing_indicator_enabled=True,
     )
     db_session.add(page)
     db_session.commit()
@@ -608,6 +627,9 @@ def test_worker_processes_message_reply_task(db_session, monkeypatch):
         page_id="page-worker",
         page_name="Trang worker",
         long_lived_access_token=encrypt_secret("page-token-worker"),
+        message_reply_min_delay_seconds=3,
+        message_reply_max_delay_seconds=5,
+        message_typing_indicator_enabled=True,
         message_auto_reply_enabled=True,
         message_ai_prompt="Tư vấn nhanh gọn.",
     )
@@ -650,9 +672,19 @@ def test_worker_processes_message_reply_task(db_session, monkeypatch):
         "app.services.campaign_jobs.send_page_message",
         lambda recipient_id, message, access_token: {"recipient_id": recipient_id, "message_id": "m_out_1"},
     )
+    typing_calls = []
+    sleep_calls = []
+    monkeypatch.setattr(
+        "app.services.campaign_jobs.send_page_sender_action",
+        lambda recipient_id, sender_action, access_token: typing_calls.append((recipient_id, sender_action)) or {"recipient_id": recipient_id},
+    )
+    monkeypatch.setattr("app.services.campaign_jobs.time.sleep", lambda seconds: sleep_calls.append(seconds))
+    monkeypatch.setattr("app.services.campaign_jobs._compute_message_reply_delay", lambda page_config: 4.0)
 
     processed = process_task_queue("worker-test@local")
     assert processed == 1
+    assert typing_calls == [("user-worker", "typing_on")]
+    assert sleep_calls == [4.0]
 
     db_session.expire_all()
     saved_log = db_session.query(InboxMessageLog).filter(InboxMessageLog.id == log.id).first()
@@ -733,6 +765,9 @@ def test_worker_uses_recent_conversation_history_and_updates_memory(db_session, 
         page_id="page-memory",
         page_name="Trang memory",
         long_lived_access_token=encrypt_secret("page-token-memory"),
+        message_reply_min_delay_seconds=0,
+        message_reply_max_delay_seconds=0,
+        message_typing_indicator_enabled=False,
         message_auto_reply_enabled=True,
         message_ai_prompt="Tư vấn theo đúng ngữ cảnh đã trao đổi.",
     )
@@ -835,6 +870,9 @@ def test_worker_marks_conversation_handoff_when_ai_requests_it(db_session, monke
         page_id="page-handoff",
         page_name="Trang handoff",
         long_lived_access_token=encrypt_secret("page-token-handoff"),
+        message_reply_min_delay_seconds=0,
+        message_reply_max_delay_seconds=0,
+        message_typing_indicator_enabled=False,
         message_auto_reply_enabled=True,
     )
     db_session.add(page)

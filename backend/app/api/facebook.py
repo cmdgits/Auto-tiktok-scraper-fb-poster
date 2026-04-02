@@ -33,10 +33,18 @@ class FacebookPageBulkRefreshRequest(BaseModel):
 
 
 class FacebookAutomationUpdate(BaseModel):
+    ai_agent_name: str | None = None
     comment_auto_reply_enabled: bool
+    ai_knowledge_base: str | None = None
     comment_ai_prompt: str | None = None
     message_auto_reply_enabled: bool
     message_ai_prompt: str | None = None
+    message_history_turn_limit: int = Field(default=5, ge=3, le=5)
+    message_reply_min_delay_seconds: int = Field(default=3, ge=0, le=30)
+    message_reply_max_delay_seconds: int = Field(default=5, ge=0, le=30)
+    message_typing_indicator_enabled: bool = True
+    handoff_keywords: str | None = None
+    negative_keywords: str | None = None
     message_reply_schedule_enabled: bool = False
     message_reply_start_time: str = Field(default="08:00", pattern=r"^\d{2}:\d{2}$")
     message_reply_end_time: str = Field(default="22:00", pattern=r"^\d{2}:\d{2}$")
@@ -101,10 +109,18 @@ def serialize_page_config(page: FacebookPage) -> dict:
         "token_kind": token_kind,
         "token_preview": token_preview,
         "token_is_encrypted": bool(raw_token and is_secret_encrypted(raw_token)),
+        "ai_agent_name": page.ai_agent_name or "",
         "comment_auto_reply_enabled": page.comment_auto_reply_enabled is not False,
+        "ai_knowledge_base": page.ai_knowledge_base or "",
         "comment_ai_prompt": page.comment_ai_prompt or "",
         "message_auto_reply_enabled": bool(page.message_auto_reply_enabled),
         "message_ai_prompt": page.message_ai_prompt or "",
+        "message_history_turn_limit": page.message_history_turn_limit or 5,
+        "message_reply_min_delay_seconds": page.message_reply_min_delay_seconds or 3,
+        "message_reply_max_delay_seconds": page.message_reply_max_delay_seconds or 5,
+        "message_typing_indicator_enabled": page.message_typing_indicator_enabled is not False,
+        "handoff_keywords": page.handoff_keywords or "",
+        "negative_keywords": page.negative_keywords or "",
         "message_reply_schedule_enabled": bool(page.message_reply_schedule_enabled),
         "message_reply_start_time": page.message_reply_start_time or "08:00",
         "message_reply_end_time": page.message_reply_end_time or "22:00",
@@ -514,13 +530,23 @@ def delete_facebook_page(
 @router.patch("/config/{page_id}/automation")
 def update_facebook_automation(page_id: str, payload: FacebookAutomationUpdate, db: Session = Depends(get_db)):
     page = db.query(FacebookPage).filter(FacebookPage.page_id == page_id).first()
+    if payload.message_reply_min_delay_seconds > payload.message_reply_max_delay_seconds:
+        raise HTTPException(status_code=400, detail="Delay tối thiểu không được lớn hơn delay tối đa.")
     if not page:
         raise HTTPException(status_code=404, detail="Không tìm thấy fanpage cần cập nhật.")
 
+    page.ai_agent_name = (payload.ai_agent_name or "").strip() or None
     page.comment_auto_reply_enabled = payload.comment_auto_reply_enabled
+    page.ai_knowledge_base = (payload.ai_knowledge_base or "").strip() or None
     page.comment_ai_prompt = (payload.comment_ai_prompt or "").strip() or None
     page.message_auto_reply_enabled = payload.message_auto_reply_enabled
     page.message_ai_prompt = (payload.message_ai_prompt or "").strip() or None
+    page.message_history_turn_limit = payload.message_history_turn_limit
+    page.message_reply_min_delay_seconds = payload.message_reply_min_delay_seconds
+    page.message_reply_max_delay_seconds = payload.message_reply_max_delay_seconds
+    page.message_typing_indicator_enabled = payload.message_typing_indicator_enabled
+    page.handoff_keywords = (payload.handoff_keywords or "").strip() or None
+    page.negative_keywords = (payload.negative_keywords or "").strip() or None
     page.message_reply_schedule_enabled = payload.message_reply_schedule_enabled
     page.message_reply_start_time = _normalize_time_string(payload.message_reply_start_time, field_name="Giờ bắt đầu")
     page.message_reply_end_time = _normalize_time_string(payload.message_reply_end_time, field_name="Giờ kết thúc")
@@ -535,8 +561,14 @@ def update_facebook_automation(page_id: str, payload: FacebookAutomationUpdate, 
         db=db,
         details={
             "page_id": page.page_id,
+            "ai_agent_name": page.ai_agent_name,
+            "ai_knowledge_base_configured": bool(page.ai_knowledge_base),
             "comment_auto_reply_enabled": page.comment_auto_reply_enabled,
             "message_auto_reply_enabled": page.message_auto_reply_enabled,
+            "message_history_turn_limit": page.message_history_turn_limit,
+            "message_reply_min_delay_seconds": page.message_reply_min_delay_seconds,
+            "message_reply_max_delay_seconds": page.message_reply_max_delay_seconds,
+            "message_typing_indicator_enabled": page.message_typing_indicator_enabled,
             "message_reply_schedule_enabled": page.message_reply_schedule_enabled,
             "message_reply_start_time": page.message_reply_start_time,
             "message_reply_end_time": page.message_reply_end_time,

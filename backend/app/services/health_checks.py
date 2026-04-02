@@ -5,7 +5,7 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from app.models.models import FacebookPage
-from app.services.ai_generator import check_gemini_health
+from app.services.ai_generator import check_gemini_health, check_openai_health
 from app.services.fb_graph import check_facebook_graph_health
 from app.services.runtime_settings import RUNTIME_ENV_FILE, resolve_runtime_value
 from app.services.security import decrypt_secret
@@ -65,6 +65,11 @@ def check_gemini_dependency(db: Session) -> dict:
     return check_gemini_health(api_key)
 
 
+def check_openai_dependency(db: Session) -> dict:
+    api_key = resolve_runtime_value("OPENAI_API_KEY", db=db)
+    return check_openai_health(api_key)
+
+
 def build_queue_health(db: Session) -> dict:
     summary = summarize_tasks(db)
     stale_processing_count = count_stale_processing_tasks(db)
@@ -84,6 +89,7 @@ def build_overall_health_status(
     queue_health: dict,
     facebook_health: dict,
     gemini_health: dict,
+    openai_health: dict,
 ) -> str:
     if not database_ok or not downloader_ok or not runtime_env_ok:
         return "unhealthy"
@@ -94,7 +100,12 @@ def build_overall_health_status(
     if facebook_health.get("configured") and not facebook_health.get("ok", False):
         return "degraded"
 
-    if gemini_health.get("configured") and not gemini_health.get("ok", False):
+    configured_ai_checks = [
+        health
+        for health in (gemini_health, openai_health)
+        if health.get("configured")
+    ]
+    if configured_ai_checks and not any(health.get("ok", False) for health in configured_ai_checks):
         return "degraded"
 
     return "healthy"

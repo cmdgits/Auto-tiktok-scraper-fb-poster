@@ -160,7 +160,16 @@ export default function SettingsSection({
   const verifyToken = getRuntimeValue('FB_VERIFY_TOKEN') || runtimeDerived.verify_token || systemInfo?.verify_token || '';
   const publicWebhookReady = /^https:\/\/.+/i.test(baseUrlValue || '');
   const signatureReady = Boolean(verifyToken && (isRuntimeConfigured('FB_APP_SECRET') || systemInfo?.webhook_signature_enabled));
-  const aiReady = isRuntimeConfigured('GEMINI_API_KEY');
+  const geminiReady = isRuntimeConfigured('GEMINI_API_KEY');
+  const openaiReady = isRuntimeConfigured('OPENAI_API_KEY');
+  const aiReady = geminiReady || openaiReady;
+  const aiProviderLabel = geminiReady && openaiReady
+    ? 'Gemini + GPT'
+    : geminiReady
+      ? 'Gemini'
+      : openaiReady
+        ? 'OpenAI GPT'
+        : 'Chưa cấu hình';
   const optionalConfiguredCount = ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID']
     .filter((key) => isRuntimeConfigured(key))
     .length;
@@ -178,7 +187,7 @@ export default function SettingsSection({
   if (!publicWebhookReady) setupBlockingIssues.push('BASE_URL cần là HTTPS công khai để Facebook gọi webhook ổn định.');
   if (!verifyToken) setupBlockingIssues.push('Thiếu FB_VERIFY_TOKEN để Meta xác minh webhook.');
   if (!signatureReady) setupBlockingIssues.push('Thiếu FB_APP_SECRET nên chưa xác minh được chữ ký webhook.');
-  if (!aiReady) setupBlockingIssues.push('Thiếu GEMINI_API_KEY nên caption và AI reply chưa hoạt động.');
+  if (!aiReady) setupBlockingIssues.push('Thiếu cả GEMINI_API_KEY và OPENAI_API_KEY nên caption và AI reply chưa hoạt động.');
   if (fbPages.length === 0) {
     setupBlockingIssues.push('Chưa có fanpage nào được thêm vào hệ thống.');
   } else if (readyPageCount === 0) {
@@ -207,8 +216,8 @@ export default function SettingsSection({
       step: '01',
       title: 'Cấu hình lõi hệ thống',
       detail: runtimeStepReady
-        ? 'Webhook công khai và AI đã sẵn sàng.'
-        : 'Nhập BASE_URL, verify token, app secret và Gemini để hệ thống có thể chạy.',
+        ? 'Webhook công khai và ít nhất một AI provider đã sẵn sàng.'
+        : 'Nhập BASE_URL, verify token, app secret và Gemini hoặc GPT để hệ thống có thể chạy.',
       tone: runtimeStepReady ? 'emerald' : 'amber',
     },
     {
@@ -255,8 +264,8 @@ export default function SettingsSection({
       emphasis: signatureReady,
     },
     {
-      label: 'Gemini AI',
-      value: aiReady ? 'Đã cấu hình' : 'Chưa cấu hình',
+      label: 'AI provider',
+      value: aiReady ? aiProviderLabel : 'Chưa cấu hình',
       emphasis: aiReady,
     },
     {
@@ -805,19 +814,29 @@ export default function SettingsSection({
                     <div>
                       <div className="text-[14px] font-semibold text-slate-900">Bước 2. AI caption và phản hồi tự động</div>
                       <div className="mt-1 text-[13px] leading-6 text-[var(--text-soft)]">
-                        Chỉ cần một khóa Gemini là worker có thể sinh caption và trả lời comment hoặc inbox bằng AI.
+                        Bạn có thể dùng Gemini, GPT hoặc cấu hình cả hai. Khi Gemini lỗi hoặc hết quota, hệ thống sẽ tự thử GPT để không làm treo caption hay AI reply.
                       </div>
                     </div>
                     <StatusPill tone={aiReady ? 'emerald' : 'amber'}>{aiReady ? 'Đã đủ' : 'Còn thiếu'}</StatusPill>
                   </div>
-                  <div className="mt-4">
+                  <div className="mt-4 grid gap-4 lg:grid-cols-2">
                     <RuntimeFieldCard
                       label="GEMINI_API_KEY"
                       description="Khóa dùng cho caption AI, phản hồi comment và trả lời inbox tự động."
-                      helper={buildSettingHelper('GEMINI_API_KEY', 'Nếu bỏ trống, các tác vụ AI sẽ không hoạt động.')}
+                      helper={buildSettingHelper('GEMINI_API_KEY', 'Nếu có cả Gemini và GPT, hệ thống sẽ ưu tiên Gemini trước rồi mới tự rơi sang GPT khi Gemini lỗi hoặc hết quota.')}
                       value={runtimeForm.GEMINI_API_KEY}
                       onChange={(event) => handleRuntimeFieldChange('GEMINI_API_KEY', event.target.value)}
                       placeholder="Gemini API Key"
+                      fieldClass={FIELD_CLASS}
+                      type="password"
+                    />
+                    <RuntimeFieldCard
+                      label="OPENAI_API_KEY"
+                      description="Khóa OpenAI/GPT để thay thế khi Gemini lỗi, quota cạn hoặc bạn muốn dùng thêm provider dự phòng."
+                      helper={buildSettingHelper('OPENAI_API_KEY', 'Worker sẽ thử GPT tự động nếu Gemini không sinh được nội dung hợp lệ.')}
+                      value={runtimeForm.OPENAI_API_KEY}
+                      onChange={(event) => handleRuntimeFieldChange('OPENAI_API_KEY', event.target.value)}
+                      placeholder="OpenAI API Key"
                       fieldClass={FIELD_CLASS}
                       type="password"
                     />

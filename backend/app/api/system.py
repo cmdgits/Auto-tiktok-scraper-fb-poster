@@ -30,9 +30,11 @@ from app.services.health_checks import (
     build_queue_health,
     check_facebook_dependency,
     check_gemini_dependency,
+    check_openai_dependency,
     check_runtime_env_health,
 )
 from app.services.cloudflare_tunnel import inspect_tunnel_token
+from app.services.page_reply_engine import build_comment_reply_plan, build_message_reply_plan
 from app.services.runtime_settings import (
     RUNTIME_ENV_FILE,
     build_runtime_settings_payload,
@@ -44,6 +46,7 @@ from app.services.security import is_default_secret
 from app.services.task_queue import count_stale_processing_tasks, serialize_task, summarize_tasks
 from app.services.tunnel_runtime import restart_tunnel_service
 from app.services.ytdlp_crawler import get_downloader_health
+from app.services.ai_generator import get_configured_ai_provider_order
 
 router = APIRouter(prefix="/system", tags=["Hệ thống"])
 
@@ -53,6 +56,7 @@ class RuntimeSettingsUpdateRequest(BaseModel):
     FB_VERIFY_TOKEN: str | None = Field(default=None)
     FB_APP_SECRET: str | None = Field(default=None)
     GEMINI_API_KEY: str | None = Field(default=None)
+    OPENAI_API_KEY: str | None = Field(default=None)
     TUNNEL_TOKEN: str | None = Field(default=None)
     TELEGRAM_BOT_TOKEN: str | None = Field(default=None)
     TELEGRAM_CHAT_ID: str | None = Field(default=None)
@@ -60,6 +64,20 @@ class RuntimeSettingsUpdateRequest(BaseModel):
 
 class TunnelTokenVerifyRequest(BaseModel):
     tunnel_token: str = Field(min_length=1)
+
+
+class AIPreviewTurn(BaseModel):
+    role: str = Field(pattern=r"^(customer|assistant)$")
+    content: str = Field(min_length=1, max_length=2000)
+
+
+class AIPreviewRequest(BaseModel):
+    page_id: str = Field(min_length=1)
+    channel: str = Field(pattern=r"^(comment|message)$")
+    user_message: str = Field(min_length=1, max_length=4000)
+    conversation_summary: str | None = Field(default=None, max_length=1000)
+    recent_turns: list[AIPreviewTurn] = Field(default_factory=list)
+    customer_facts: dict[str, str] = Field(default_factory=dict)
 
 
 def serialize_worker(worker: WorkerHeartbeat) -> dict:
@@ -177,6 +195,7 @@ def get_system_health(db: Session = Depends(get_db)):
     runtime_env_health = check_runtime_env_health()
     facebook_health = check_facebook_dependency(db)
     gemini_health = check_gemini_dependency(db)
+    openai_health = check_openai_dependency(db)
     overall_status = build_overall_health_status(
         database_ok=db_ok,
         downloader_ok=downloader_health["ok"],
@@ -184,6 +203,7 @@ def get_system_health(db: Session = Depends(get_db)):
         queue_health=queue_health,
         facebook_health=facebook_health,
         gemini_health=gemini_health,
+        openai_health=openai_health,
     )
 
     return {
@@ -208,6 +228,7 @@ def get_system_health(db: Session = Depends(get_db)):
         "dependencies": {
             "facebook_graph": facebook_health,
             "gemini": gemini_health,
+            "openai": openai_health,
             "yt_dlp": downloader_health,
             "runtime_env": runtime_env_health,
         },
@@ -306,6 +327,62 @@ def verify_tunnel_token(
     )
 
     return response_payload
+
+
+@router.post("/ai-preview")
+def preview_ai_reply(
+    payload: AIPreviewRequest,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    page = db.query(FacebookPage).filter(FacebookPage.page_id == payload.page_id).first()
+    if not page:
+        raise HTTPException(status_code=404, detail="Không tìm thấy fanpage để preview AI.")
+
+    provider_order = get_configured_ai_provider_order()
+    if not provider_order:
+        raise HTTPException(status_code=400, detail="Chưa cấu hình GEMINI_API_KEY hoặc OPENAI_API_KEY.")
+
+    if payload.channel == "comment":
+        reply_plan = build_comment_reply_plan(
+            db,
+            page_config=page,
+            user_message=payload.user_message,
+        )
+        return {
+            "page": {"page_id": page.page_id, "page_name": page.page_name},
+            "channel": payload.channel,
+            "provider_order": provider_order,
+            "reply_mode": reply_plan.get("reply_mode"),
+            "reply": reply_plan.get("reply"),
+            "intent": reply_plan.get("intent"),
+            "summary": reply_plan.get("summary"),
+            "lookup_used": bool(reply_plan.get("lookup_used")),
+            "lookup_matches": reply_plan.get("lookup_matches") or [],
+        }
+
+    reply_plan = build_message_reply_plan(
+        db,
+        page_config=page,
+        user_message=payload.user_message,
+        conversation_summary=payload.conversation_summary,
+        recent_turns=[turn.model_dump() for turn in payload.recent_turns],
+        customer_facts=payload.customer_facts,
+    )
+    return {
+        "page": {"page_id": page.page_id, "page_name": page.page_name},
+        "channel": payload.channel,
+        "provider_order": provider_order,
+        "reply_mode": reply_plan.get("reply_mode"),
+        "reply": reply_plan.get("reply"),
+        "intent": reply_plan.get("intent"),
+        "summary": reply_plan.get("summary"),
+        "customer_facts": reply_plan.get("customer_facts") or {},
+        "handoff": bool(reply_plan.get("handoff")),
+        "handoff_reason": reply_plan.get("handoff_reason"),
+        "lookup_used": bool(reply_plan.get("lookup_used")),
+        "lookup_matches": reply_plan.get("lookup_matches") or [],
+    }
 
 
 @router.get("/tasks")

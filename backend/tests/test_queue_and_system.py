@@ -2,7 +2,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from app.core.time import utc_now
-from app.models.models import SystemEvent, TaskQueue, WorkerHeartbeat
+from app.models.models import FacebookPage, SystemEvent, TaskQueue, WorkerHeartbeat
 from app.services.runtime_settings import RUNTIME_ENV_FILE
 from app.services.task_queue import (
     TASK_TYPE_CAMPAIGN_SYNC,
@@ -136,11 +136,12 @@ def test_admin_can_update_runtime_config_and_webhook_uses_new_values(client, aut
             "FB_APP_SECRET": "runtime-app-secret",
             "TUNNEL_TOKEN": "runtime-tunnel-token",
             "GEMINI_API_KEY": "runtime-gemini-key",
+            "OPENAI_API_KEY": "runtime-openai-key",
         },
     )
     assert update_response.status_code == 200
     update_payload = update_response.json()
-    assert set(update_payload["changed_keys"]) >= {"BASE_URL", "FB_VERIFY_TOKEN", "FB_APP_SECRET", "TUNNEL_TOKEN", "GEMINI_API_KEY"}
+    assert set(update_payload["changed_keys"]) >= {"BASE_URL", "FB_VERIFY_TOKEN", "FB_APP_SECRET", "TUNNEL_TOKEN", "GEMINI_API_KEY", "OPENAI_API_KEY"}
     assert update_payload["derived"]["webhook_url"] == "https://runtime.example.com/webhooks/fb"
 
     overview_response = client.get("/system/overview", headers=auth_headers)
@@ -203,3 +204,78 @@ def test_admin_can_verify_tunnel_token_and_restart_tunnel_service(client, auth_h
     assert payload["tunnel_verification"]["can_autofill_base_url"] is False
     assert payload["tunnel_restart"]["ok"] is True
     assert "TUNNEL_TOKEN" in payload["changed_keys"]
+
+
+def test_admin_can_preview_ai_reply_for_comment_and_message(client, auth_headers, db_session, monkeypatch):
+    from app.api import system as system_api
+
+    page = FacebookPage(
+        page_id="page-preview-ai",
+        page_name="Trang preview AI",
+        long_lived_access_token="encrypted-token-placeholder",
+    )
+    db_session.add(page)
+    db_session.commit()
+
+    monkeypatch.setattr(system_api, "get_configured_ai_provider_order", lambda: ["gemini", "openai"])
+    monkeypatch.setattr(
+        system_api,
+        "build_comment_reply_plan",
+        lambda db, page_config, user_message: {
+            "reply": f"Comment preview cho: {user_message}",
+            "reply_mode": "ai",
+            "intent": "comment_preview",
+            "summary": "Tom tat comment",
+            "lookup_used": False,
+            "lookup_matches": [],
+        },
+    )
+    monkeypatch.setattr(
+        system_api,
+        "build_message_reply_plan",
+        lambda db, page_config, user_message, conversation_summary=None, recent_turns=None, customer_facts=None: {
+            "reply": f"Inbox preview cho: {user_message}",
+            "reply_mode": "lookup",
+            "intent": "message_preview",
+            "summary": "Tom tat inbox",
+            "customer_facts": {"muc_dich": "test"},
+            "handoff": False,
+            "handoff_reason": None,
+            "lookup_used": True,
+            "lookup_matches": [{"title": "Video A", "source_video_url": "https://example.com/video-a"}],
+        },
+    )
+
+    comment_response = client.post(
+        "/system/ai-preview",
+        headers=auth_headers,
+        json={
+            "page_id": "page-preview-ai",
+            "channel": "comment",
+            "user_message": "Video nay noi gi vay?",
+        },
+    )
+    assert comment_response.status_code == 200
+    comment_payload = comment_response.json()
+    assert comment_payload["provider_order"] == ["gemini", "openai"]
+    assert comment_payload["reply"] == "Comment preview cho: Video nay noi gi vay?"
+    assert comment_payload["reply_mode"] == "ai"
+
+    message_response = client.post(
+        "/system/ai-preview",
+        headers=auth_headers,
+        json={
+            "page_id": "page-preview-ai",
+            "channel": "message",
+            "user_message": "Gui minh link video do",
+            "conversation_summary": "Khach dang hoi link video",
+            "recent_turns": [{"role": "customer", "content": "Cho minh xin clip"}],
+            "customer_facts": {"so_thich": "drama"},
+        },
+    )
+    assert message_response.status_code == 200
+    message_payload = message_response.json()
+    assert message_payload["reply"] == "Inbox preview cho: Gui minh link video do"
+    assert message_payload["reply_mode"] == "lookup"
+    assert message_payload["lookup_used"] is True
+    assert message_payload["lookup_matches"][0]["title"] == "Video A"

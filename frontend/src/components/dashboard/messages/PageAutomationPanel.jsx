@@ -69,6 +69,15 @@ export default function PageAutomationPanel({
                       <StatusPill tone={draft.message_auto_reply_enabled ? 'emerald' : 'slate'}>
                         Inbox: {draft.message_auto_reply_enabled ? 'Bật' : 'Tắt'}
                       </StatusPill>
+                      <StatusPill tone="sky">
+                        History: {draft.message_history_turn_limit} lượt
+                      </StatusPill>
+                      <StatusPill tone={draft.message_typing_indicator_enabled ? 'emerald' : 'slate'}>
+                        Typing: {draft.message_typing_indicator_enabled ? 'Bật' : 'Tắt'}
+                      </StatusPill>
+                      <StatusPill tone="amber">
+                        Delay: {draft.message_reply_min_delay_seconds}-{draft.message_reply_max_delay_seconds}s
+                      </StatusPill>
                       <StatusPill tone={draft.message_reply_schedule_enabled ? 'sky' : 'slate'}>
                         Giờ: {draft.message_reply_schedule_enabled ? `${draft.message_reply_start_time}-${draft.message_reply_end_time}` : 'Cả ngày'}
                       </StatusPill>
@@ -115,15 +124,44 @@ export default function PageAutomationPanel({
                         disabled={actionState[`reply-automation-${pageItem.page_id}`]}
                       >
                         <Bot className="h-4 w-4" />
-                        {actionState[`reply-automation-${pageItem.page_id}`] ? 'Đang lưu...' : 'Lưu prompt AI'}
+                        {actionState[`reply-automation-${pageItem.page_id}`] ? 'Đang lưu...' : 'Lưu cấu hình AI'}
                       </button>
+                    </div>
+                    <div className="mt-5 rounded-[24px] border border-slate-200/80 bg-white/85 p-4">
+                      <div className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Nhân sự AI của fanpage</div>
+                      <div className="mt-3 grid gap-4 md:grid-cols-2">
+                        <label className="space-y-2">
+                          <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Tên nhân viên AI</span>
+                          <input
+                            className={FIELD_CLASS}
+                            value={draft.ai_agent_name}
+                            onChange={(event) => handleReplyAutomationDraftChange(pageItem.page_id, 'ai_agent_name', event.target.value)}
+                            placeholder="Ví dụ: Linh, Hân, Mai"
+                          />
+                        </label>
+                        <div className="rounded-[20px] border border-slate-200/80 bg-slate-50/80 px-4 py-3 text-sm leading-7 text-[var(--text-soft)]">
+                          AI sẽ tự xưng là nhân viên CSKH của page bằng tên này. Nếu để trống, hệ thống sẽ dùng cách xưng hô trung tính theo fanpage.
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-5 rounded-[24px] border border-slate-200/80 bg-white/85 p-4">
+                      <div className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Kho kiến thức fanpage</div>
+                      <textarea
+                        className={cx(FIELD_CLASS, 'mt-3 min-h-[180px] resize-y')}
+                        value={draft.ai_knowledge_base}
+                        onChange={(event) => handleReplyAutomationDraftChange(pageItem.page_id, 'ai_knowledge_base', event.target.value)}
+                        placeholder="Điền thông tin AI phải biết để trả lời chính xác: giới thiệu page, sản phẩm/dịch vụ, giá, khu vực phục vụ, giờ làm việc, cách mua, chính sách đổi trả, FAQ, link quan trọng, câu trả lời chuẩn cho các câu hỏi thường gặp."
+                      />
+                      <div className="mt-3 text-sm leading-6 text-[var(--text-soft)]">
+                        Đây là phần dữ liệu thật của fanpage. Khi khách hỏi về page, sản phẩm, dịch vụ, giá, chính sách hay cách liên hệ, AI sẽ ưu tiên đọc phần này trước rồi mới trả lời. Nếu trong đây không có thông tin thì AI sẽ phải nhận là chưa biết thay vì đoán.
+                      </div>
                     </div>
                     <div className="mt-5 grid gap-4 xl:grid-cols-2">
                       <div className="rounded-[24px] border border-slate-200/80 bg-slate-50/80 p-4">
                         <label className="flex items-center justify-between gap-3 rounded-[20px] border border-slate-200/80 bg-white/80 px-4 py-3">
                           <div>
                             <div className="font-medium text-slate-900">Tự động trả lời comment</div>
-                            <div className="mt-1 text-sm text-[var(--text-soft)]">Luồng bình luận hiện có.</div>
+                            <div className="mt-1 text-sm text-[var(--text-soft)]">AI sẽ bám đúng ý bình luận của khách và gợi ý bước tiếp theo khi phù hợp.</div>
                           </div>
                           <input
                             type="checkbox"
@@ -131,20 +169,23 @@ export default function PageAutomationPanel({
                             onChange={(event) => handleReplyAutomationDraftChange(pageItem.page_id, 'comment_auto_reply_enabled', event.target.checked)}
                           />
                         </label>
-                        <div className="mt-4 text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Prompt comment</div>
+                        <div className="mt-4 text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Quy tắc bổ sung cho comment</div>
                         <textarea
                           className={cx(FIELD_CLASS, 'mt-3 min-h-[180px] resize-y')}
                           value={draft.comment_ai_prompt}
                           onChange={(event) => handleReplyAutomationDraftChange(pageItem.page_id, 'comment_ai_prompt', event.target.value)}
-                          placeholder="Để trống nếu muốn dùng prompt mặc định cho comment."
+                          placeholder="Ví dụ: Nếu khách hỏi giá hoặc cách mua thì trả lời ngắn gọn, sau đó mời khách nói rõ mẫu hoặc nhu cầu cụ thể."
                         />
+                        <div className="mt-3 text-sm leading-6 text-[var(--text-soft)]">
+                          Prompt mặc định của hệ thống đã có sẵn các quy tắc: không biết thì nhận, phân loại khủng hoảng, CTA giữ tương tác, hiểu từ lóng mạng và giới hạn độ dài. Ô này chỉ dùng để bổ sung quy tắc riêng cho fanpage.
+                        </div>
                       </div>
 
                       <div className="rounded-[24px] border border-slate-200/80 bg-slate-50/80 p-4">
                         <label className="flex items-center justify-between gap-3 rounded-[20px] border border-slate-200/80 bg-white/80 px-4 py-3">
                           <div>
                             <div className="font-medium text-slate-900">Tự động trả lời inbox</div>
-                            <div className="mt-1 text-sm text-[var(--text-soft)]">Luồng Messenger mới.</div>
+                            <div className="mt-1 text-sm text-[var(--text-soft)]">AI sẽ trả lời theo đúng tin nhắn mới nhất của khách, giữ ngữ cảnh và gợi ý bước tiếp theo khi phù hợp.</div>
                           </div>
                           <input
                             type="checkbox"
@@ -152,13 +193,90 @@ export default function PageAutomationPanel({
                             onChange={(event) => handleReplyAutomationDraftChange(pageItem.page_id, 'message_auto_reply_enabled', event.target.checked)}
                           />
                         </label>
-                        <div className="mt-4 text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Prompt inbox</div>
+                        <div className="mt-4 text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Quy tắc bổ sung cho inbox</div>
                         <textarea
                           className={cx(FIELD_CLASS, 'mt-3 min-h-[180px] resize-y')}
                           value={draft.message_ai_prompt}
                           onChange={(event) => handleReplyAutomationDraftChange(pageItem.page_id, 'message_ai_prompt', event.target.value)}
-                          placeholder="Để trống nếu muốn dùng prompt mặc định cho inbox."
+                          placeholder="Ví dụ: Trả lời ngắn gọn, dùng cùng ngôn ngữ với khách, nếu còn thiếu dữ kiện thì chỉ hỏi thêm đúng một câu."
                         />
+                        <div className="mt-3 text-sm leading-6 text-[var(--text-soft)]">
+                          Prompt mặc định của hệ thống đã có sẵn các quy tắc: không biết thì nhận, bám đúng ngữ cảnh, hiểu từ lóng mạng, trả lời đủ ý và thêm gợi ý bước tiếp theo khi phù hợp. Ô này chỉ dùng để bổ sung quy tắc riêng cho fanpage.
+                        </div>
+                        <div className="mt-4 grid gap-4 md:grid-cols-2">
+                          <label className="space-y-2">
+                            <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Số lượt hội thoại gửi vào AI</span>
+                            <input
+                              type="number"
+                              min="3"
+                              max="5"
+                              className={FIELD_CLASS}
+                              value={draft.message_history_turn_limit}
+                              onChange={(event) => handleReplyAutomationDraftChange(pageItem.page_id, 'message_history_turn_limit', parseInt(event.target.value, 10) || 5)}
+                            />
+                            <div className="text-sm text-[var(--text-soft)]">Giữ đúng 3-5 lượt gần nhất để AI hiểu các đại từ như “cái đó”, “như trên”.</div>
+                          </label>
+                          <label className="space-y-2">
+                            <span className="flex items-center justify-between text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">
+                              <span>Hiện trạng thái đang soạn</span>
+                              <input
+                                type="checkbox"
+                                checked={draft.message_typing_indicator_enabled}
+                                onChange={(event) => handleReplyAutomationDraftChange(pageItem.page_id, 'message_typing_indicator_enabled', event.target.checked)}
+                              />
+                            </span>
+                            <div className="rounded-[20px] border border-slate-200/80 bg-white/80 px-4 py-3 text-sm leading-7 text-[var(--text-soft)]">
+                              Khi bật, worker sẽ gửi `typing_on` trước lúc phản hồi Messenger để trông giống người thật hơn.
+                            </div>
+                          </label>
+                        </div>
+                        <div className="mt-4 grid gap-4 md:grid-cols-2">
+                          <label className="space-y-2">
+                            <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Delay tối thiểu</span>
+                            <input
+                              type="number"
+                              min="0"
+                              max="30"
+                              className={FIELD_CLASS}
+                              value={draft.message_reply_min_delay_seconds}
+                              onChange={(event) => handleReplyAutomationDraftChange(pageItem.page_id, 'message_reply_min_delay_seconds', parseInt(event.target.value, 10) || 0)}
+                            />
+                          </label>
+                          <label className="space-y-2">
+                            <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Delay tối đa</span>
+                            <input
+                              type="number"
+                              min="0"
+                              max="30"
+                              className={FIELD_CLASS}
+                              value={draft.message_reply_max_delay_seconds}
+                              onChange={(event) => handleReplyAutomationDraftChange(pageItem.page_id, 'message_reply_max_delay_seconds', parseInt(event.target.value, 10) || 0)}
+                            />
+                          </label>
+                        </div>
+                        <div className="mt-4 grid gap-4 md:grid-cols-2">
+                          <label className="space-y-2">
+                            <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Từ khóa chuyển người thật</span>
+                            <textarea
+                              className={cx(FIELD_CLASS, 'min-h-[120px] resize-y')}
+                              value={draft.handoff_keywords}
+                              onChange={(event) => handleReplyAutomationDraftChange(pageItem.page_id, 'handoff_keywords', event.target.value)}
+                              placeholder="Ví dụ: quản lý, người thật, gọi lại, kỹ thuật, khiếu nại, hoàn tiền"
+                            />
+                          </label>
+                          <label className="space-y-2">
+                            <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Từ khóa tiêu cực</span>
+                            <textarea
+                              className={cx(FIELD_CLASS, 'min-h-[120px] resize-y')}
+                              value={draft.negative_keywords}
+                              onChange={(event) => handleReplyAutomationDraftChange(pageItem.page_id, 'negative_keywords', event.target.value)}
+                              placeholder="Ví dụ: bực, tệ, lỗi, hỏng, lừa đảo, không hài lòng"
+                            />
+                          </label>
+                        </div>
+                        <div className="mt-3 text-sm leading-6 text-[var(--text-soft)]">
+                          Nếu khách dùng từ ngữ tiêu cực hoặc yêu cầu gặp quản lý/người thật, hệ thống sẽ dừng AI, đánh dấu handoff và chuyển conversation sang operator.
+                        </div>
                         <div className="mt-4 grid gap-4 md:grid-cols-2">
                           <label className="space-y-2">
                             <span className="flex items-center justify-between text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">
@@ -196,7 +314,7 @@ export default function PageAutomationPanel({
                               value={draft.message_reply_cooldown_minutes}
                               onChange={(event) => handleReplyAutomationDraftChange(pageItem.page_id, 'message_reply_cooldown_minutes', parseInt(event.target.value, 10) || 0)}
                             />
-                            <div className="text-sm text-[var(--text-soft)]">Tính theo phút, giờ Việt Nam.</div>
+                            <div className="text-sm text-[var(--text-soft)]">Tính theo phút. Chỉ chặn khi lượt tin khách trước đó vẫn còn đang chờ AI xử lý.</div>
                           </label>
                         </div>
                       </div>

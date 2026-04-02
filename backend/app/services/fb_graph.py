@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import mimetypes
 import os
 import time
 
@@ -560,6 +562,190 @@ def send_page_message(recipient_id: str, message: str, access_token: str):
             "error",
             "Lỗi API gửi tin nhắn inbox Facebook.",
             details={"recipient_id": recipient_id, "error": str(exc)},
+        )
+        return {"error": str(exc)}
+
+
+def send_page_sender_action(recipient_id: str, sender_action: str, access_token: str):
+    try:
+        result = _graph_post(
+            "me/messages",
+            params={"access_token": access_token},
+            json_payload={
+                "recipient": {"id": recipient_id},
+                "sender_action": sender_action,
+            },
+            timeout=30,
+        )
+        if not result["ok"]:
+            log_structured(
+                "facebook_graph",
+                "warning",
+                "Facebook từ chối sender_action inbox.",
+                details={"recipient_id": recipient_id, "sender_action": sender_action, "message": result["message"]},
+            )
+            return {"error": result["message"], **(result.get("data") or {})}
+        return result["data"]
+    except Exception as exc:
+        log_structured(
+            "facebook_graph",
+            "error",
+            "Lỗi API sender_action inbox Facebook.",
+            details={"recipient_id": recipient_id, "sender_action": sender_action, "error": str(exc)},
+        )
+        return {"error": str(exc)}
+
+
+def send_page_attachment(recipient_id: str, attachment_type: str, attachment_url: str, access_token: str):
+    try:
+        result = _graph_post(
+            "me/messages",
+            params={"access_token": access_token},
+            json_payload={
+                "recipient": {"id": recipient_id},
+                "messaging_type": "RESPONSE",
+                "message": {
+                    "attachment": {
+                        "type": attachment_type,
+                        "payload": {
+                            "url": attachment_url,
+                            "is_reusable": False,
+                        },
+                    },
+                },
+            },
+            timeout=30,
+        )
+        if not result["ok"]:
+            log_structured(
+                "facebook_graph",
+                "warning",
+                "Facebook từ chối gửi attachment inbox.",
+                details={
+                    "recipient_id": recipient_id,
+                    "attachment_type": attachment_type,
+                    "attachment_url": attachment_url,
+                    "message": result["message"],
+                },
+            )
+            return {"error": result["message"], **(result.get("data") or {})}
+        return result["data"]
+    except Exception as exc:
+        log_structured(
+            "facebook_graph",
+            "error",
+            "Lỗi API gửi attachment inbox Facebook.",
+            details={
+                "recipient_id": recipient_id,
+                "attachment_type": attachment_type,
+                "attachment_url": attachment_url,
+                "error": str(exc),
+            },
+        )
+        return {"error": str(exc)}
+
+
+def upload_page_attachment_from_file(page_id: str, attachment_type: str, file_path: str, access_token: str):
+    if not os.path.exists(file_path):
+        return {"error": f"Không tìm thấy file attachment: {file_path}"}
+
+    filename = os.path.basename(file_path) or "attachment"
+    content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+
+    try:
+        with open(file_path, "rb") as file_handle:
+            response = requests.post(
+                f"{GRAPH_API_BASE}/{page_id}/message_attachments",
+                params={"access_token": access_token},
+                data={
+                    "message": json.dumps(
+                        {
+                            "attachment": {
+                                "type": attachment_type,
+                                "payload": {"is_reusable": False},
+                            }
+                        },
+                        ensure_ascii=False,
+                    )
+                },
+                files={"filedata": (filename, file_handle, content_type)},
+                timeout=30,
+            )
+
+        result = _parse_graph_response(response)
+        if not result["ok"]:
+            log_structured(
+                "facebook_graph",
+                "warning",
+                "Facebook từ chối upload attachment inbox.",
+                details={
+                    "page_id": page_id,
+                    "attachment_type": attachment_type,
+                    "file_path": file_path,
+                    "message": result["message"],
+                },
+            )
+            return {"error": result["message"], **(result.get("data") or {})}
+        return result["data"]
+    except Exception as exc:
+        log_structured(
+            "facebook_graph",
+            "error",
+            "Lỗi API upload attachment inbox Facebook.",
+            details={
+                "page_id": page_id,
+                "attachment_type": attachment_type,
+                "file_path": file_path,
+                "error": str(exc),
+            },
+        )
+        return {"error": str(exc)}
+
+
+def send_page_attachment_by_id(recipient_id: str, attachment_type: str, attachment_id: str, access_token: str):
+    try:
+        result = _graph_post(
+            "me/messages",
+            params={"access_token": access_token},
+            json_payload={
+                "recipient": {"id": recipient_id},
+                "messaging_type": "RESPONSE",
+                "message": {
+                    "attachment": {
+                        "type": attachment_type,
+                        "payload": {
+                            "attachment_id": attachment_id,
+                        },
+                    },
+                },
+            },
+            timeout=30,
+        )
+        if not result["ok"]:
+            log_structured(
+                "facebook_graph",
+                "warning",
+                "Facebook từ chối gửi attachment inbox theo attachment_id.",
+                details={
+                    "recipient_id": recipient_id,
+                    "attachment_type": attachment_type,
+                    "attachment_id": attachment_id,
+                    "message": result["message"],
+                },
+            )
+            return {"error": result["message"], **(result.get("data") or {})}
+        return result["data"]
+    except Exception as exc:
+        log_structured(
+            "facebook_graph",
+            "error",
+            "Lỗi API gửi attachment inbox theo attachment_id.",
+            details={
+                "recipient_id": recipient_id,
+                "attachment_type": attachment_type,
+                "attachment_id": attachment_id,
+                "error": str(exc),
+            },
         )
         return {"error": str(exc)}
 

@@ -2,9 +2,10 @@ import json
 import uuid
 from datetime import datetime, timedelta
 from json import JSONDecodeError
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -15,17 +16,27 @@ from app.core.database import get_db
 from app.core.time import utc_now
 from app.models.models import ConversationStatus, FacebookPage, InboxConversation, InboxMessageLog, InteractionLog, InteractionStatus, TaskQueue, TaskStatus, User
 from app.services.accounts import serialize_user
-from app.services.ai_generator import generate_reply
 from app.services.inbox_memory import get_or_create_inbox_conversation, serialize_conversation, touch_conversation_with_customer_message
 from app.services.observability import record_event
+from app.services.page_reply_engine import build_comment_reply_plan
 from app.services.runtime_settings import resolve_runtime_value
 from app.services.security import verify_facebook_signature
 from app.services.task_queue import TASK_TYPE_COMMENT_REPLY, TASK_TYPE_MESSAGE_REPLY, enqueue_task
-from app.services.fb_graph import delete_comment, lookup_profile_name, moderate_conversation, reply_to_comment, send_page_message
+from app.services.fb_graph import (
+    delete_comment,
+    lookup_profile_name,
+    moderate_conversation,
+    reply_to_comment,
+    send_page_attachment_by_id,
+    send_page_message,
+    upload_page_attachment_from_file,
+)
 from app.services.security import decrypt_secret
 
 router = APIRouter(prefix="/webhooks", tags=["Webhook"])
 LOCAL_TIMEZONE = ZoneInfo(settings.APP_TIMEZONE)
+MESSAGE_ATTACHMENT_DIR = Path(settings.DOWNLOAD_DIR) / "message_attachments"
+MAX_MESSAGE_ATTACHMENT_BYTES = 25 * 1024 * 1024
 
 
 class ConversationHandoffUpdate(BaseModel):
@@ -43,6 +54,7 @@ class ConversationUpdateRequest(BaseModel):
 class ConversationReplyRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
     mark_resolved: bool = False
+    reply_to_message_log_id: str | None = None
 
 
 class CommentInteractionUpdateRequest(BaseModel):
@@ -51,6 +63,61 @@ class CommentInteractionUpdateRequest(BaseModel):
 
 class CommentReplyRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
+
+
+def _resolve_base_url(db: Session) -> str:
+    base_url = (resolve_runtime_value("BASE_URL", db=db) or settings.BASE_URL or "").strip().rstrip("/")
+    if not base_url:
+        raise HTTPException(status_code=400, detail="BASE_URL chưa được cấu hình để gửi attachment.")
+    if "localhost" in base_url or "127.0.0.1" in base_url:
+        raise HTTPException(status_code=400, detail="BASE_URL hiện vẫn là localhost, Facebook không thể tải attachment từ URL này.")
+    return base_url
+
+
+def _save_message_attachment(attachment: UploadFile) -> tuple[str, str, str]:
+    original_name = (attachment.filename or "").strip() or "attachment"
+    content_type = (attachment.content_type or "").strip().lower()
+    attachment_kind = "image" if content_type.startswith("image/") else "file"
+
+    suffix = Path(original_name).suffix[:16]
+    safe_name = f"{uuid.uuid4().hex}{suffix}"
+    MESSAGE_ATTACHMENT_DIR.mkdir(parents=True, exist_ok=True)
+    target_path = MESSAGE_ATTACHMENT_DIR / safe_name
+
+    total_bytes = 0
+    try:
+        with target_path.open("wb") as output_handle:
+            while True:
+                chunk = attachment.file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total_bytes += len(chunk)
+                if total_bytes > MAX_MESSAGE_ATTACHMENT_BYTES:
+                    output_handle.close()
+                    target_path.unlink(missing_ok=True)
+                    raise HTTPException(status_code=400, detail="Attachment vượt quá giới hạn 25MB của hệ thống.")
+                output_handle.write(chunk)
+    finally:
+        attachment.file.close()
+
+    return safe_name, attachment_kind, original_name
+
+
+def _resolve_base_url(db: Session) -> str:
+    base_url = (resolve_runtime_value("BASE_URL", db=db) or settings.BASE_URL or "").strip().rstrip("/")
+    if not base_url:
+        return ""
+    if "localhost" in base_url or "127.0.0.1" in base_url:
+        return ""
+    return base_url
+
+
+def _build_message_attachment_url(db: Session, stored_filename: str) -> str:
+    base_url = _resolve_base_url(db)
+    relative_path = f"/downloads/message_attachments/{stored_filename}"
+    if not base_url:
+        return relative_path
+    return f"{base_url}{relative_path}"
 
 
 def serialize_interaction_log(log: InteractionLog, reply_author: User | None = None) -> dict:
@@ -122,8 +189,12 @@ def serialize_message_log(
         "sender_id": log.sender_id,
         "sender_name": log.sender_name or (conversation.sender_name if conversation else None),
         "recipient_id": log.recipient_id,
+        "reply_to_message_log_id": str(log.reply_to_message_log_id) if log.reply_to_message_log_id else None,
         "user_message": log.user_message,
         "ai_reply": log.ai_reply,
+        "attachment_type": log.attachment_type,
+        "attachment_name": log.attachment_name,
+        "attachment_url": log.attachment_url,
         "facebook_reply_message_id": log.facebook_reply_message_id,
         "reply_source": log.reply_source or ("ai" if log.ai_reply and log.status == InteractionStatus.replied else ""),
         "reply_author_user_id": str(log.reply_author_user_id) if log.reply_author_user_id else None,
@@ -305,6 +376,38 @@ def _purge_conversation_or_raise(
     }
 
 
+def _build_outbound_message_log(
+    *,
+    conversation: InboxConversation,
+    reply_message_id: str,
+    sender_id: str,
+    author_user_id,
+    text: str | None = None,
+    reply_to_log_id=None,
+    attachment_type: str | None = None,
+    attachment_name: str | None = None,
+    attachment_url: str | None = None,
+) -> InboxMessageLog:
+    return InboxMessageLog(
+        page_id=conversation.page_id,
+        conversation_id=conversation.id,
+        facebook_message_id=f"outbound:{reply_message_id}",
+        sender_id=sender_id,
+        recipient_id=conversation.recipient_id or conversation.page_id,
+        reply_to_message_log_id=reply_to_log_id,
+        user_message=None,
+        ai_reply=text,
+        attachment_type=attachment_type,
+        attachment_name=attachment_name,
+        attachment_url=attachment_url,
+        facebook_reply_message_id=reply_message_id,
+        reply_source="operator",
+        reply_author_user_id=author_user_id,
+        status=InteractionStatus.replied,
+        last_error=None,
+    )
+
+
 def _set_conversation_status(
     conversation: InboxConversation,
     *,
@@ -371,7 +474,8 @@ def _get_message_cooldown_reason(db: Session, page_id: str, sender_id: str, cool
         .filter(
             InboxMessageLog.page_id == page_id,
             InboxMessageLog.sender_id == sender_id,
-            InboxMessageLog.status.in_([InteractionStatus.pending, InteractionStatus.replied]),
+            InboxMessageLog.user_message.isnot(None),
+            InboxMessageLog.status == InteractionStatus.pending,
         )
         .order_by(InboxMessageLog.updated_at.desc(), InboxMessageLog.created_at.desc())
         .first()
@@ -773,12 +877,14 @@ def generate_comment_reply_draft(
         raise HTTPException(status_code=400, detail="BÃ¬nh luáº­n nÃ y Ä‘Ã£ Ä‘Æ°á»£c pháº£n há»“i rá»“i.")
 
     page_config = db.query(FacebookPage).filter(FacebookPage.page_id == log.page_id).first()
-    prompt_override = page_config.comment_ai_prompt if page_config else None
-    draft_text = generate_reply(
-        log.user_message,
-        channel="comment",
-        prompt_override=prompt_override,
-    ).strip()
+    if not page_config:
+        raise HTTPException(status_code=404, detail="Không tìm thấy cấu hình fanpage cho bình luận này.")
+    reply_plan = build_comment_reply_plan(
+        db,
+        page_config=page_config,
+        user_message=log.user_message,
+    )
+    draft_text = (reply_plan.get("reply") or "").strip()
     if not draft_text:
         raise HTTPException(status_code=502, detail="KhÃ´ng táº¡o Ä‘Æ°á»£c gá»£i Ã½ AI cho bÃ¬nh luáº­n nÃ y.")
 
@@ -1222,24 +1328,39 @@ def send_manual_message_reply(
     if not message_text:
         raise HTTPException(status_code=400, detail="Nội dung phản hồi không được để trống.")
 
+    reply_to_log_id = None
+    if payload.reply_to_message_log_id:
+        try:
+            reply_to_uuid = uuid.UUID(payload.reply_to_message_log_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Mã tin nhắn được chọn để trả lời không hợp lệ.") from exc
+
+        reply_to_log = (
+            db.query(InboxMessageLog)
+            .filter(
+                InboxMessageLog.id == reply_to_uuid,
+                InboxMessageLog.conversation_id == conversation.id,
+            )
+            .first()
+        )
+        if not reply_to_log:
+            raise HTTPException(status_code=404, detail="Không tìm thấy tin nhắn được chọn để trả lời.")
+        if not (reply_to_log.user_message or "").strip():
+            raise HTTPException(status_code=400, detail="Hiện chỉ hỗ trợ trả lời theo tin nhắn gốc của khách hàng.")
+        reply_to_log_id = reply_to_log.id
+
     response = send_page_message(conversation.sender_id, message_text, access_token)
     if not response or response.get("error"):
         raise HTTPException(status_code=502, detail=response.get("error") if isinstance(response, dict) else "Không thể gửi phản hồi qua Facebook.")
 
     reply_message_id = response.get("message_id") or response.get("id") or f"manual:{uuid.uuid4()}"
-    log = InboxMessageLog(
-        page_id=conversation.page_id,
-        conversation_id=conversation.id,
-        facebook_message_id=f"outbound:{reply_message_id}",
+    log = _build_outbound_message_log(
+        conversation=conversation,
+        reply_message_id=reply_message_id,
         sender_id=conversation.sender_id,
-        recipient_id=conversation.recipient_id or conversation.page_id,
-        user_message=None,
-        ai_reply=message_text,
-        facebook_reply_message_id=reply_message_id,
-        reply_source="operator",
-        reply_author_user_id=current_user.id,
-        status=InteractionStatus.replied,
-        last_error=None,
+        author_user_id=current_user.id,
+        text=message_text,
+        reply_to_log_id=reply_to_log_id,
     )
     db.add(log)
     conversation.latest_reply_message_id = reply_message_id
@@ -1279,6 +1400,161 @@ def send_manual_message_reply(
             assigned_user=assigned_user_map.get(conversation.assigned_to_user_id),
         ),
         "log": serialize_message_log(log, conversation, reply_author=assigned_user_map.get(current_user.id)),
+    }
+
+
+@router.post("/conversations/{conversation_id}/reply-attachment")
+def send_manual_message_attachment(
+    conversation_id: str,
+    attachment: UploadFile = File(...),
+    message: str = Form(default=""),
+    mark_resolved: bool = Form(default=False),
+    reply_to_message_log_id: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_authenticated_user),
+):
+    try:
+        conversation_uuid = uuid.UUID(conversation_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Mã conversation không hợp lệ.") from exc
+
+    conversation = db.query(InboxConversation).filter(InboxConversation.id == conversation_uuid).first()
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Không tìm thấy cuộc trò chuyện.")
+
+    page_config = db.query(FacebookPage).filter(FacebookPage.page_id == conversation.page_id).first()
+    if not page_config or not page_config.long_lived_access_token:
+        raise HTTPException(status_code=400, detail="Trang Facebook chưa có Page Access Token hợp lệ.")
+
+    access_token = decrypt_secret(page_config.long_lived_access_token)
+    message_text = (message or "").strip()
+
+    reply_to_log_id = None
+    if reply_to_message_log_id:
+        try:
+            reply_to_uuid = uuid.UUID(reply_to_message_log_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Mã tin nhắn được chọn để trả lời không hợp lệ.") from exc
+
+        reply_to_log = (
+            db.query(InboxMessageLog)
+            .filter(
+                InboxMessageLog.id == reply_to_uuid,
+                InboxMessageLog.conversation_id == conversation.id,
+            )
+            .first()
+        )
+        if not reply_to_log:
+            raise HTTPException(status_code=404, detail="Không tìm thấy tin nhắn được chọn để trả lời.")
+        if not (reply_to_log.user_message or "").strip():
+            raise HTTPException(status_code=400, detail="Hiện chỉ hỗ trợ trả lời theo tin nhắn gốc của khách hàng.")
+        reply_to_log_id = reply_to_log.id
+
+    stored_filename, attachment_type, attachment_name = _save_message_attachment(attachment)
+    attachment_url = _build_message_attachment_url(db, stored_filename)
+
+    created_logs: list[InboxMessageLog] = []
+    try:
+        if message_text:
+            text_response = send_page_message(conversation.sender_id, message_text, access_token)
+            if not text_response or text_response.get("error"):
+                raise HTTPException(status_code=502, detail=text_response.get("error") if isinstance(text_response, dict) else "Không thể gửi phần nội dung văn bản qua Facebook.")
+
+            text_reply_message_id = text_response.get("message_id") or text_response.get("id") or f"manual:{uuid.uuid4()}"
+            text_log = _build_outbound_message_log(
+                conversation=conversation,
+                reply_message_id=text_reply_message_id,
+                sender_id=conversation.sender_id,
+                author_user_id=current_user.id,
+                text=message_text,
+                reply_to_log_id=reply_to_log_id,
+            )
+            db.add(text_log)
+            created_logs.append(text_log)
+            conversation.latest_reply_message_id = text_reply_message_id
+
+        attachment_path = MESSAGE_ATTACHMENT_DIR / stored_filename
+        upload_response = upload_page_attachment_from_file(
+            conversation.page_id,
+            attachment_type,
+            str(attachment_path),
+            access_token,
+        )
+        if not upload_response or upload_response.get("error"):
+            raise HTTPException(status_code=502, detail=upload_response.get("error") if isinstance(upload_response, dict) else "Không thể upload attachment qua Facebook.")
+
+        attachment_id = upload_response.get("attachment_id")
+        if not attachment_id:
+            raise HTTPException(status_code=502, detail="Facebook không trả về attachment_id sau khi upload attachment.")
+
+        attachment_response = send_page_attachment_by_id(conversation.sender_id, attachment_type, attachment_id, access_token)
+        if not attachment_response or attachment_response.get("error"):
+            raise HTTPException(status_code=502, detail=attachment_response.get("error") if isinstance(attachment_response, dict) else "Không thể gửi attachment qua Facebook.")
+
+        attachment_reply_message_id = attachment_response.get("message_id") or attachment_response.get("id") or f"attachment:{uuid.uuid4()}"
+        attachment_log = _build_outbound_message_log(
+            conversation=conversation,
+            reply_message_id=attachment_reply_message_id,
+            sender_id=conversation.sender_id,
+            author_user_id=current_user.id,
+            text=None,
+            reply_to_log_id=reply_to_log_id,
+            attachment_type=attachment_type,
+            attachment_name=attachment_name,
+            attachment_url=attachment_url,
+        )
+        db.add(attachment_log)
+        created_logs.append(attachment_log)
+        conversation.latest_reply_message_id = attachment_reply_message_id
+        conversation.last_operator_reply_at = utc_now()
+        conversation.assigned_to_user_id = current_user.id
+        if mark_resolved:
+            _set_conversation_status(conversation, status=ConversationStatus.resolved)
+        else:
+            _set_conversation_status(
+                conversation,
+                status=ConversationStatus.operator_active,
+                handoff_reason=conversation.handoff_reason or "Operator đang tiếp nhận cuộc trò chuyện này.",
+            )
+        db.commit()
+    except Exception:
+        attachment_path = MESSAGE_ATTACHMENT_DIR / stored_filename
+        if attachment_path.exists():
+            attachment_path.unlink(missing_ok=True)
+        raise
+
+    for created_log in created_logs:
+        db.refresh(created_log)
+    db.refresh(conversation)
+
+    assigned_user_map = _load_user_map(db, [conversation.assigned_to_user_id, current_user.id])
+    record_event(
+        "webhook",
+        "info",
+        "Operator đã gửi attachment cho cuộc trò chuyện inbox.",
+        db=db,
+        actor_user_id=str(current_user.id),
+        details={
+            "conversation_id": str(conversation.id),
+            "page_id": conversation.page_id,
+            "sender_id": conversation.sender_id,
+            "attachment_type": attachment_type,
+            "attachment_name": attachment_name,
+            "reply_to_message_log_id": str(reply_to_log_id) if reply_to_log_id else None,
+            "status": conversation.status.value if hasattr(conversation.status, "value") else conversation.status,
+        },
+    )
+
+    return {
+        "message": "Đã gửi attachment trong Messenger thành công.",
+        "conversation": serialize_conversation(
+            conversation,
+            assigned_user=assigned_user_map.get(conversation.assigned_to_user_id),
+        ),
+        "logs": [
+            serialize_message_log(created_log, conversation, reply_author=assigned_user_map.get(current_user.id))
+            for created_log in created_logs
+        ],
     }
 
 

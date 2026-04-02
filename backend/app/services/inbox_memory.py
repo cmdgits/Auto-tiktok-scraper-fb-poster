@@ -83,6 +83,7 @@ def serialize_recent_turns(
     sender_id: str,
     exclude_log_id: uuid.UUID | None = None,
     limit_logs: int | None = None,
+    max_turns: int | None = None,
 ) -> list[dict[str, str]]:
     query = db.query(InboxMessageLog)
     if conversation_id:
@@ -113,6 +114,8 @@ def serialize_recent_turns(
             if reply_text:
                 turns.append({"role": "assistant", "content": reply_text})
 
+    if max_turns and max_turns > 0:
+        turns = turns[-max_turns:]
     return turns
 
 
