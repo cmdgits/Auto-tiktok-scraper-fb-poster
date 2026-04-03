@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.database import get_db
 from app.core.time import utc_now, utc_today
-from app.models.models import Campaign, CampaignStatus, FacebookPage, Video, VideoStatus
+from app.models.models import Campaign, CampaignStatus, FacebookPage, TaskQueue, Video, VideoStatus
 from app.services.ai_generator import generate_caption
 from app.services.observability import record_event
 from app.services.campaign_jobs import build_source_page_publish_time
@@ -758,3 +758,44 @@ def retry_video(video_id: str, db: Session = Depends(get_db)):
         max_attempts=3,
     )
     return {"message": f"Đã xếp lịch thử tải lại video {video.original_id}.", "task_id": str(task.id)}
+
+
+@router.delete("/videos/{video_id}")
+def delete_video_from_queue(video_id: str, db: Session = Depends(get_db)):
+    video = get_video_or_404(db, video_id)
+    if normalize_status(video.status) == VideoStatus.posted.value:
+        raise HTTPException(status_code=400, detail="Video đã đăng thành công nên không thể xóa khỏi lịch đăng.")
+
+    original_id = video.original_id
+    campaign_id = str(video.campaign_id) if video.campaign_id else None
+    video_uuid = str(video.id)
+    file_path = video.file_path
+    deleted_tasks = (
+        db.query(TaskQueue)
+        .filter(TaskQueue.entity_type == "video", TaskQueue.entity_id == video_uuid)
+        .delete(synchronize_session=False)
+    )
+    db.delete(video)
+    db.commit()
+    safe_remove_file(file_path)
+
+    record_event(
+        "video",
+        "warning",
+        "Đã xóa video khỏi lịch đăng.",
+        db=db,
+        details={
+            "video_id": video_uuid,
+            "original_id": original_id,
+            "campaign_id": campaign_id,
+            "deleted_tasks": deleted_tasks,
+            "deleted_file": bool(file_path),
+        },
+    )
+    return {
+        "message": f"Đã xóa video {original_id} khỏi lịch đăng.",
+        "deleted_video_id": video_uuid,
+        "original_id": original_id,
+        "campaign_id": campaign_id,
+        "deleted_tasks": deleted_tasks,
+    }

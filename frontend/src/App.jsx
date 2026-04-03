@@ -548,6 +548,27 @@ function buildPageCheckSnapshot(payload) {
   };
 }
 
+function mergeFacebookPages(currentPages, incomingPages) {
+  if (!Array.isArray(incomingPages) || incomingPages.length === 0) return currentPages;
+
+  const pageMap = new Map(currentPages.map((pageItem) => [pageItem.page_id, pageItem]));
+  incomingPages.forEach((pageItem) => {
+    if (!pageItem?.page_id) return;
+    pageMap.set(pageItem.page_id, {
+      ...(pageMap.get(pageItem.page_id) || {}),
+      ...pageItem,
+    });
+  });
+
+  return Array.from(pageMap.values()).sort((left, right) => (
+    (left.page_name || left.page_id || '').localeCompare(right.page_name || right.page_id || '', 'vi')
+  ));
+}
+
+function isLikelyFacebookPageId(value) {
+  return /^\d{8,}$/.test((value || '').trim());
+}
+
 function App() {
   const [campaigns, setCampaigns] = useState([]);
   const [videos, setVideos] = useState([]);
@@ -570,6 +591,7 @@ function App() {
   const [campaignScheduleDrafts, setCampaignScheduleDrafts] = useState({});
   const [fbForm, setFbForm] = useState({ page_id: '', page_name: '', long_lived_access_token: '' });
   const [fbImportToken, setFbImportToken] = useState('');
+  const [fbSaveFeedback, setFbSaveFeedback] = useState(null);
   const [discoveredFbPages, setDiscoveredFbPages] = useState([]);
   const [selectedDiscoveredPageIds, setSelectedDiscoveredPageIds] = useState([]);
   const [discoverySubject, setDiscoverySubject] = useState(null);
@@ -626,6 +648,7 @@ function App() {
   const manualReplyInputRef = useRef(null);
   const manualReplyAttachmentInputRef = useRef(null);
   const confirmResolverRef = useRef(null);
+  const dashboardRequestIdRef = useRef(0);
 
   const isAdmin = currentUser?.role === 'admin';
   const isQueueSection = activeSection === 'queue';
@@ -795,6 +818,8 @@ function App() {
   const fetchDashboard = async ({ includeVideos = isQueueSection } = {}) => {
     if (!token) return;
     setIsRefreshing(true);
+    const requestId = dashboardRequestIdRef.current + 1;
+    dashboardRequestIdRef.current = requestId;
     try {
       const meData = currentUser || await requestJson(`${API_URL}/auth/me`);
       const isAdminUser = meData?.role === 'admin';
@@ -842,6 +867,8 @@ function App() {
       ] = includeVideos
         ? restPayloads
         : [null, ...restPayloads];
+
+      if (dashboardRequestIdRef.current !== requestId) return;
 
       setCurrentUser(meData);
       setCampaigns(campaignsData);
@@ -1172,28 +1199,55 @@ function App() {
 
   const handleFbSubmit = async (event) => {
     event.preventDefault();
+    const normalizedPageId = (fbForm.page_id || '').trim();
+    const normalizedPageName = (fbForm.page_name || '').trim();
+    const existingPage = fbPages.find((pageItem) => pageItem.page_id === normalizedPageId);
+    if (!isLikelyFacebookPageId(normalizedPageId) && isLikelyFacebookPageId(normalizedPageName)) {
+      showNotice('error', 'Bạn đang nhập ngược 2 ô. "Mã trang" phải là dãy số Page ID, còn "Tên trang" là tên hiển thị fanpage.');
+      return;
+    }
     const confirmed = await confirmAction({
-      title: 'Lưu cấu hình fanpage',
-      description: `Fanpage "${fbForm.page_name || fbForm.page_id || 'mới'}" sẽ được lưu vào hệ thống.`,
-      confirmLabel: 'Lưu fanpage',
+      title: existingPage ? 'Cập nhật cấu hình fanpage' : 'Lưu cấu hình fanpage',
+      description: existingPage
+        ? `Page ID ${normalizedPageId} đã có trong hệ thống dưới tên "${existingPage.page_name}". Thao tác này sẽ cập nhật fanpage hiện có, không tạo thêm trang mới.`
+        : `Fanpage "${fbForm.page_name || fbForm.page_id || 'mới'}" sẽ được lưu vào hệ thống.`,
+      confirmLabel: existingPage ? 'Cập nhật fanpage' : 'Lưu fanpage',
       tone: 'sky',
     });
     if (!confirmed) return;
 
-    const payload = await runAction('save-page', async () => {
-      const response = await requestJson(`${API_URL}/facebook/config`, {
+    setFbSaveFeedback(null);
+    setBusy('save-page', true);
+    try {
+      const payload = await requestJson(`${API_URL}/facebook/config`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(fbForm),
       });
       setFbForm({ page_id: '', page_name: '', long_lived_access_token: '' });
-      return response;
-    });
-    if (payload?.page?.page_id && payload?.validation) {
-      setPageChecks((current) => ({
-        ...current,
-        [payload.page.page_id]: buildPageCheckSnapshot(payload),
-      }));
+      setFbSaveFeedback({
+        type: 'success',
+        message: payload?.message || `Đã lưu fanpage ${payload?.page?.page_name || normalizedPageName}.`,
+      });
+      showNotice('success', payload?.message || 'Đã lưu cấu hình fanpage.');
+      if (payload?.page) {
+        setFbPages((current) => mergeFacebookPages(current, [payload.page]));
+      }
+      if (payload?.page?.page_id && payload?.validation) {
+        setPageChecks((current) => ({
+          ...current,
+          [payload.page.page_id]: buildPageCheckSnapshot(payload),
+        }));
+      }
+      await fetchDashboard();
+    } catch (error) {
+      setFbSaveFeedback({
+        type: 'error',
+        message: error.message || 'Không thể lưu fanpage.',
+      });
+      showNotice('error', error.message || 'Không thể lưu fanpage.');
+    } finally {
+      setBusy('save-page', false);
     }
   };
 
@@ -1273,6 +1327,10 @@ function App() {
     }));
 
     if (payload?.imported_pages) {
+      setFbPages((current) => mergeFacebookPages(
+        current,
+        payload.imported_pages.map((item) => item?.page).filter(Boolean),
+      ));
       setPageChecks((current) => {
         const next = { ...current };
         payload.imported_pages.forEach((item) => {
@@ -1317,6 +1375,10 @@ function App() {
     }));
 
     if (payload?.refreshed_pages) {
+      setFbPages((current) => mergeFacebookPages(
+        current,
+        payload.refreshed_pages.map((item) => item?.page).filter(Boolean),
+      ));
       setPageChecks((current) => {
         const next = { ...current };
         payload.refreshed_pages.forEach((item) => {
@@ -1379,6 +1441,9 @@ function App() {
       const payload = await requestJson(`${API_URL}/facebook/config/${pageId}/subscribe-messages`, {
         method: 'POST',
       });
+      if (payload?.page) {
+        setFbPages((current) => mergeFacebookPages(current, [payload.page]));
+      }
       setPageChecks((current) => ({
         ...current,
         [pageId]: buildPageCheckSnapshot(payload),
@@ -1469,6 +1534,7 @@ function App() {
     }));
 
     if (payload?.page) {
+      setFbPages((current) => mergeFacebookPages(current, [payload.page]));
       setReplyAutomationDrafts((current) => ({
         ...current,
         [pageId]: buildReplyAutomationDraft(payload.page),
@@ -1677,6 +1743,34 @@ function App() {
 
   const handleRetryVideo = async (videoId) => {
     await runAction(`video-retry-${videoId}`, () => requestJson(`${API_URL}/campaigns/videos/${videoId}/retry`, { method: 'POST' }));
+  };
+
+  const handleDeleteVideo = async (video) => {
+    if (!video?.id) return;
+
+    const confirmed = await confirmAction({
+      title: 'Xóa video khỏi lịch đăng',
+      description: `Video ${video.original_id || 'này'} sẽ bị xóa khỏi hàng chờ đăng. Nếu video đã tải về máy chủ, file local cũng sẽ được dọn.`,
+      confirmLabel: 'Xóa khỏi lịch',
+      tone: 'rose',
+    });
+    if (!confirmed) return;
+
+    const payload = await runAction(`video-delete-${video.id}`, () => requestJson(`${API_URL}/campaigns/videos/${video.id}`, {
+      method: 'DELETE',
+    }));
+    if (payload?.deleted_video_id) {
+      setCaptionDrafts((current) => {
+        const next = { ...current };
+        delete next[payload.deleted_video_id];
+        return next;
+      });
+      setExpandedItems((current) => {
+        const next = { ...current };
+        delete next[`video:${payload.deleted_video_id}`];
+        return next;
+      });
+    }
   };
 
   const handleRegenerateCaption = async (videoId) => {
@@ -2168,6 +2262,7 @@ function App() {
         handleCaptionChange,
         handlePrioritize,
         handleRetryVideo,
+        handleDeleteVideo,
         handleRegenerateCaption,
         handleSaveCaption,
       }}
@@ -2332,6 +2427,7 @@ function App() {
         discoverySubject,
         fbImportToken,
         fbForm,
+        fbSaveFeedback,
         actionState,
         pageChecks,
         systemInfo,

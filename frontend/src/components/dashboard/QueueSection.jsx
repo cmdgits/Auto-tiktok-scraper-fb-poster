@@ -6,6 +6,7 @@
   Globe2,
   Play,
   RefreshCw,
+  Trash2,
   Zap,
 } from 'lucide-react';
 
@@ -66,6 +67,7 @@ export default function QueueSection({
     handleCaptionChange,
     handlePrioritize,
     handleRetryVideo,
+    handleDeleteVideo,
     handleRegenerateCaption,
     handleSaveCaption,
   } = actions;
@@ -182,6 +184,7 @@ export default function QueueSection({
               const sourcePlatformMeta = getSourcePlatformMeta(video.source_platform);
               const canPrioritize = video.status === 'ready' || video.status === 'pending';
               const canRetry = video.status === 'failed';
+              const canDelete = video.status !== 'posted';
 
               return (
                 <article
@@ -265,6 +268,17 @@ export default function QueueSection({
                         ) : null}
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
+                        {canDelete ? (
+                          <button
+                            type="button"
+                            className={cx(BUTTON_GHOST, 'border-rose-200 bg-rose-50 text-rose-700 hover:border-rose-300 hover:bg-rose-100 hover:text-rose-800')}
+                            onClick={() => handleDeleteVideo(video)}
+                            disabled={actionState[`video-delete-${video.id}`]}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            {actionState[`video-delete-${video.id}`] ? 'Đang xóa...' : 'Xóa khỏi lịch'}
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           className={BUTTON_GHOST}

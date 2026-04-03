@@ -119,6 +119,7 @@ export default function SettingsSection({
     discoverySubject,
     fbImportToken,
     fbForm,
+    fbSaveFeedback,
     actionState,
     pageChecks,
     systemInfo,
@@ -433,6 +434,18 @@ export default function SettingsSection({
                 <Globe2 className="h-4 w-4" />
                 {actionState['save-page'] ? 'Đang lưu token...' : 'Lưu cấu hình fanpage'}
               </button>
+              {fbSaveFeedback ? (
+                <div
+                  className={cx(
+                    'rounded-[20px] border px-4 py-3 text-[13px] leading-6',
+                    fbSaveFeedback.type === 'success'
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                      : 'border-rose-200 bg-rose-50 text-rose-800',
+                  )}
+                >
+                  {fbSaveFeedback.message}
+                </div>
+              ) : null}
             </div>
           </form>
 
@@ -669,6 +682,15 @@ export default function SettingsSection({
                     <button type="button" className={BUTTON_SECONDARY} onClick={() => handleValidatePage(pageItem.page_id)} disabled={actionState[`page-validate-${pageItem.page_id}`]}>
                       <ShieldCheck className="h-4 w-4" />
                       {actionState[`page-validate-${pageItem.page_id}`] ? 'Đang kiểm tra...' : 'Xác minh & kiểm tra'}
+                    </button>
+                    <button
+                      type="button"
+                      className={BUTTON_GHOST}
+                      onClick={() => handleSubscribeMessages(pageItem.page_id)}
+                      disabled={actionState[`page-subscribe-${pageItem.page_id}`]}
+                    >
+                      <MessagesSquare className="h-4 w-4" />
+                      {actionState[`page-subscribe-${pageItem.page_id}`] ? 'Đang đăng ký...' : 'Đăng ký webhook'}
                     </button>
                     <button
                       type="button"

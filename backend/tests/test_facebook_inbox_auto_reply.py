@@ -144,6 +144,88 @@ def test_runtime_env_contains_saved_page_credentials(client, auth_headers, monke
     assert "FB_PAGE_1_ACCESS_TOKEN=page-token-runtime" in runtime_content
 
 
+def test_save_page_normalizes_page_identity_before_persist_and_validate(client, auth_headers, monkeypatch, db_session):
+    from app.api import facebook as facebook_api
+
+    seen_page_ids = []
+
+    def inspect_with_capture(page_id: str, access_token: str):
+        seen_page_ids.append(page_id)
+        return mock_page_access(page_id, access_token)
+
+    monkeypatch.setattr(facebook_api, "inspect_page_access", inspect_with_capture)
+
+    response = client.post(
+        "/facebook/config",
+        headers=auth_headers,
+        json={
+            "page_id": "  page-trim  ",
+            "page_name": "  Trang trim  ",
+            "long_lived_access_token": "page-token-trim",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["page"]["page_id"] == "page-trim"
+    assert payload["page"]["page_name"] == "Trang trim"
+    assert seen_page_ids == ["page-trim"]
+
+    saved_page = db_session.query(FacebookPage).filter(FacebookPage.page_id == "page-trim").first()
+    assert saved_page is not None
+    assert saved_page.page_name == "Trang trim"
+
+
+def test_save_page_rejects_swapped_page_id_and_page_name(client, auth_headers):
+    response = client.post(
+        "/facebook/config",
+        headers=auth_headers,
+        json={
+            "page_id": "Đậu Đậu Review",
+            "page_name": "987602457761028",
+            "long_lived_access_token": "page-token-trim",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "nhập ngược 2 ô" in response.json()["detail"]
+
+
+def test_can_save_multiple_pages_and_list_them_for_validation(client, auth_headers, monkeypatch):
+    from app.api import facebook as facebook_api
+
+    monkeypatch.setattr(facebook_api, "inspect_page_access", mock_page_access)
+
+    first_response = client.post(
+        "/facebook/config",
+        headers=auth_headers,
+        json={
+            "page_id": "111111111111111",
+            "page_name": "Trang 1",
+            "long_lived_access_token": "page-token-1",
+        },
+    )
+    assert first_response.status_code == 200
+
+    second_response = client.post(
+        "/facebook/config",
+        headers=auth_headers,
+        json={
+            "page_id": "222222222222222",
+            "page_name": "Trang 2",
+            "long_lived_access_token": "page-token-2",
+        },
+    )
+    assert second_response.status_code == 200
+
+    config_response = client.get("/facebook/config", headers=auth_headers)
+    assert config_response.status_code == 200
+    payload = config_response.json()
+    assert len(payload) == 2
+    assert [page["page_id"] for page in payload] == ["111111111111111", "222222222222222"]
+    assert [page["page_name"] for page in payload] == ["Trang 1", "Trang 2"]
+
+
 def test_can_discover_pages_from_user_access_token(client, auth_headers, monkeypatch):
     from app.api import facebook as facebook_api
 
@@ -299,11 +381,12 @@ def test_validate_page_returns_messenger_connection(client, auth_headers, db_ses
     db_session.add(page)
     db_session.commit()
 
+    captured_required_fields = []
     monkeypatch.setattr(facebook_api, "inspect_page_access", mock_page_access)
     monkeypatch.setattr(
         facebook_api,
         "inspect_page_messenger_subscription",
-        lambda page_id, access_token, required_fields=("messages",): {
+        lambda page_id, access_token, required_fields=("messages",): captured_required_fields.append(tuple(required_fields)) or {
             "ok": True,
             "connected": True,
             "message": "Inbox đã kết nối với app kiểm thử.",
@@ -311,13 +394,13 @@ def test_validate_page_returns_messenger_connection(client, auth_headers, db_ses
             "connected_app": {
                 "id": "app-1",
                 "name": "Ứng dụng kiểm thử",
-                "subscribed_fields": ["messages"],
+                "subscribed_fields": list(required_fields),
             },
             "apps": [
                 {
                     "id": "app-1",
                     "name": "Ứng dụng kiểm thử",
-                    "subscribed_fields": ["messages"],
+                    "subscribed_fields": list(required_fields),
                 }
             ],
         },
@@ -330,6 +413,8 @@ def test_validate_page_returns_messenger_connection(client, auth_headers, db_ses
     assert payload["token_kind"] == "page_access_token"
     assert payload["messenger_connection"]["connected"] is True
     assert payload["messenger_connection"]["connected_app"]["id"] == "app-1"
+    assert captured_required_fields == [("messages", "feed")]
+    assert payload["messenger_connection"]["required_fields"] == ["messages", "feed"]
 
 
 def test_can_subscribe_page_messages_from_dashboard(client, auth_headers, db_session, monkeypatch):
@@ -343,11 +428,13 @@ def test_can_subscribe_page_messages_from_dashboard(client, auth_headers, db_ses
     db_session.add(page)
     db_session.commit()
 
+    captured_subscribed_fields = []
+    captured_required_fields = []
     monkeypatch.setattr(facebook_api, "inspect_page_access", mock_page_access)
     monkeypatch.setattr(
         facebook_api,
         "subscribe_page_to_app",
-        lambda page_id, access_token, subscribed_fields=("messages",): {
+        lambda page_id, access_token, subscribed_fields=("messages",): captured_subscribed_fields.append(tuple(subscribed_fields)) or {
             "ok": True,
             "message": "Đã đăng ký messages.",
             "data": {"success": True},
@@ -356,7 +443,7 @@ def test_can_subscribe_page_messages_from_dashboard(client, auth_headers, db_ses
     monkeypatch.setattr(
         facebook_api,
         "inspect_page_messenger_subscription",
-        lambda page_id, access_token, required_fields=("messages",): {
+        lambda page_id, access_token, required_fields=("messages",): captured_required_fields.append(tuple(required_fields)) or {
             "ok": True,
             "connected": True,
             "message": "Inbox đã kết nối với app kiểm thử.",
@@ -364,13 +451,13 @@ def test_can_subscribe_page_messages_from_dashboard(client, auth_headers, db_ses
             "connected_app": {
                 "id": "app-2",
                 "name": "Ứng dụng kiểm thử",
-                "subscribed_fields": ["messages"],
+                "subscribed_fields": list(required_fields),
             },
             "apps": [
                 {
                     "id": "app-2",
                     "name": "Ứng dụng kiểm thử",
-                    "subscribed_fields": ["messages"],
+                    "subscribed_fields": list(required_fields),
                 }
             ],
         },
@@ -383,6 +470,9 @@ def test_can_subscribe_page_messages_from_dashboard(client, auth_headers, db_ses
     assert payload["validation"]["token_kind"] == "page_access_token"
     assert payload["messenger_connection"]["connected"] is True
     assert payload["messenger_connection"]["connected_app"]["id"] == "app-2"
+    assert captured_subscribed_fields == [("messages", "feed")]
+    assert captured_required_fields == [("messages", "feed")]
+    assert payload["messenger_connection"]["required_fields"] == ["messages", "feed"]
 
 
 def test_webhook_message_event_creates_message_log_and_task_when_enabled(client, auth_headers, db_session):

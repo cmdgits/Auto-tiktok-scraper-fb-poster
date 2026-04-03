@@ -618,6 +618,69 @@ def test_get_videos_can_filter_by_source_platform(client, auth_headers, db_sessi
     assert all(video["source_platform"] == "youtube" for video in payload["videos"])
 
 
+def test_can_delete_video_from_queue_and_cleanup_related_file_and_tasks(client, auth_headers, db_session, tmp_path):
+    page = FacebookPage(
+        page_id="page-delete-video",
+        page_name="Trang xóa video",
+        long_lived_access_token="encrypted-token-placeholder",
+    )
+    db_session.add(page)
+    db_session.commit()
+
+    campaign = Campaign(
+        name="Campaign xóa video",
+        source_url="https://www.tiktok.com/@demo/video/delete-me",
+        source_platform="tiktok",
+        source_kind="tiktok_video",
+        status=CampaignStatus.active,
+        target_page_id=page.page_id,
+        schedule_interval=30,
+    )
+    db_session.add(campaign)
+    db_session.commit()
+    db_session.refresh(campaign)
+
+    video_path = tmp_path / "video-delete.mp4"
+    video_path.write_bytes(b"delete-me")
+
+    video = Video(
+        campaign_id=campaign.id,
+        original_id="video-delete-me",
+        source_platform="tiktok",
+        source_kind="tiktok_video",
+        source_video_url="https://www.tiktok.com/@demo/video/delete-me",
+        file_path=str(video_path),
+        original_caption="Caption delete me",
+        ai_caption="Caption delete me",
+        status=VideoStatus.ready,
+        publish_time=utc_now(),
+    )
+    db_session.add(video)
+    db_session.commit()
+    db_session.refresh(video)
+
+    task = TaskQueue(
+        task_type="video_retry",
+        entity_type="video",
+        entity_id=str(video.id),
+        payload={"video_id": str(video.id)},
+    )
+    db_session.add(task)
+    db_session.commit()
+
+    response = client.delete(f"/campaigns/videos/{video.id}", headers=auth_headers)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["deleted_video_id"] == str(video.id)
+    assert payload["deleted_tasks"] == 1
+
+    db_session.expire_all()
+    assert db_session.query(Video).filter(Video.id == video.id).first() is None
+    assert db_session.query(TaskQueue).filter(TaskQueue.entity_id == str(video.id)).count() == 0
+    assert not video_path.exists()
+
+
 def test_campaign_stats_include_source_trends(client, auth_headers, db_session):
     now = utc_now()
     tiktok_campaign = Campaign(

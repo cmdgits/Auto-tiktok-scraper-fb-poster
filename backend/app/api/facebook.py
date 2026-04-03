@@ -51,6 +51,10 @@ class FacebookAutomationUpdate(BaseModel):
     message_reply_cooldown_minutes: int = Field(default=0, ge=0, le=1440)
 
 
+def _looks_like_page_id(value: str) -> bool:
+    return bool((value or "").strip()) and (value or "").strip().isdigit()
+
+
 def _normalize_time_string(value: str, *, field_name: str) -> str:
     raw = (value or "").strip()
     try:
@@ -64,6 +68,23 @@ def _normalize_time_string(value: str, *, field_name: str) -> str:
         raise HTTPException(status_code=400, detail=f"{field_name} không hợp lệ.")
 
     return f"{hour_value:02d}:{minute_value:02d}"
+
+
+def _normalize_page_identity(page_id: str, page_name: str) -> tuple[str, str]:
+    normalized_page_id = (page_id or "").strip()
+    normalized_page_name = (page_name or "").strip()
+
+    if not normalized_page_id:
+        raise HTTPException(status_code=400, detail="Page ID không được để trống.")
+    if not normalized_page_name:
+        raise HTTPException(status_code=400, detail="Tên fanpage không được để trống.")
+    if not _looks_like_page_id(normalized_page_id) and _looks_like_page_id(normalized_page_name):
+        raise HTTPException(
+            status_code=400,
+            detail='Bạn đang nhập ngược 2 ô. "Page ID" phải là dãy số của fanpage, còn "Tên fanpage" là tên hiển thị.',
+        )
+
+    return normalized_page_id, normalized_page_name
 
 def get_token_kind(token: str | None) -> str:
     if not token:
@@ -144,6 +165,7 @@ def serialize_discovered_page(page_data: dict, *, existing_page_ids: set[str] | 
 
 
 def _upsert_facebook_page(db: Session, *, page_id: str, page_name: str, access_token: str) -> FacebookPage:
+    page_id, page_name = _normalize_page_identity(page_id, page_name)
     page = db.query(FacebookPage).filter(FacebookPage.page_id == page_id).first()
     if page:
         page.page_name = page_name
@@ -231,6 +253,7 @@ def set_facebook_config(
     db: Session = Depends(get_db),
     _: User = Depends(require_authenticated_user),
 ):
+    normalized_page_id, normalized_page_name = _normalize_page_identity(page_in.page_id, page_in.page_name)
     normalized_token = page_in.long_lived_access_token.strip()
 
     if get_token_kind(normalized_token) == "legacy_webhook":
@@ -239,20 +262,21 @@ def set_facebook_config(
             detail="Hãy nhập mã truy cập trang Facebook thật. Liên kết webhook cũ không còn dùng để đăng bài hoặc trả lời bình luận."
         )
 
-    inspection = _validate_page_access_token(page_in.page_id, normalized_token)
+    inspection = _validate_page_access_token(normalized_page_id, normalized_token)
 
-    page = db.query(FacebookPage).filter(FacebookPage.page_id == page_in.page_id).first()
+    page = db.query(FacebookPage).filter(FacebookPage.page_id == normalized_page_id).first()
     if page:
-        page.page_name = page_in.page_name
+        page.page_name = normalized_page_name
         page.long_lived_access_token = encrypt_secret(normalized_token)
     else:
         page = FacebookPage(
-            page_id=page_in.page_id,
-            page_name=page_in.page_name,
+            page_id=normalized_page_id,
+            page_name=normalized_page_name,
             long_lived_access_token=encrypt_secret(normalized_token)
         )
         db.add(page)
     db.commit()
+    db.refresh(page)
     write_runtime_env_file(db)
     record_event(
         "facebook",
@@ -260,8 +284,8 @@ def set_facebook_config(
         "Đã lưu cấu hình trang Facebook.",
         db=db,
         details={
-            "page_id": page_in.page_id,
-            "page_name": page_in.page_name,
+            "page_id": normalized_page_id,
+            "page_name": normalized_page_name,
             "token_kind": inspection.get("token_kind"),
         },
     )
@@ -583,7 +607,8 @@ def update_facebook_automation(page_id: str, payload: FacebookAutomationUpdate, 
 
 @router.get("/config/{page_id}/validate")
 def validate_facebook_page(page_id: str, db: Session = Depends(get_db)):
-    page = db.query(FacebookPage).filter(FacebookPage.page_id == page_id).first()
+    normalized_page_id = (page_id or "").strip()
+    page = db.query(FacebookPage).filter(FacebookPage.page_id == normalized_page_id).first()
     if not page:
         raise HTTPException(status_code=404, detail="Không tìm thấy trang Facebook trong hệ thống.")
 
@@ -624,7 +649,8 @@ def validate_facebook_page(page_id: str, db: Session = Depends(get_db)):
 
 @router.post("/config/{page_id}/subscribe-messages")
 def subscribe_facebook_page_messages(page_id: str, db: Session = Depends(get_db)):
-    page = db.query(FacebookPage).filter(FacebookPage.page_id == page_id).first()
+    normalized_page_id = (page_id or "").strip()
+    page = db.query(FacebookPage).filter(FacebookPage.page_id == normalized_page_id).first()
     if not page:
         raise HTTPException(status_code=404, detail="Không tìm thấy trang Facebook trong hệ thống.")
 
