@@ -97,6 +97,16 @@ def _build_entry_url(entry: dict, source_platform: str, source_kind_hint: str) -
     return None
 
 
+def _build_original_caption(title: str | None, description: str | None) -> str | None:
+    normalized_title = (title or "").strip()
+    normalized_description = (description or "").strip()
+    if normalized_title and normalized_description:
+        if normalized_title.casefold() == normalized_description.casefold():
+            return normalized_title
+        return f"{normalized_title}\n{normalized_description}"
+    return normalized_description or normalized_title or None
+
+
 def _normalize_entry(entry: dict, source_platform: str, source_kind_hint: str) -> NormalizedMediaEntry | None:
     entry_url = _build_entry_url(entry, source_platform, source_kind_hint)
     if not entry_url:
@@ -116,7 +126,7 @@ def _normalize_entry(entry: dict, source_platform: str, source_kind_hint: str) -
 
     title = (entry.get("title") or "").strip() or None
     description = (entry.get("description") or "").strip() or None
-    original_caption = description or title
+    original_caption = _build_original_caption(title, description)
 
     return NormalizedMediaEntry(
         original_id=str(entry.get("id") or uuid.uuid4()),

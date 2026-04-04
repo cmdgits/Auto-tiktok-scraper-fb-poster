@@ -131,6 +131,14 @@ CAPTION_SEARCH_INTENT_PREFIXES = {
     "entertainment": ("videohay", "xemlagi", "giaitri"),
     "food": ("review", "monngon", "anuong"),
 }
+CAPTION_SOURCE_KIND_CONTEXT_LABELS = {
+    "tiktok_video": "clip TikTok ngắn",
+    "tiktok_profile": "chuỗi clip TikTok",
+    "tiktok_shortlink": "clip TikTok ngắn",
+    "tiktok_legacy": "video ngắn",
+    "youtube_short": "video shorts",
+    "youtube_shorts_feed": "chuỗi video shorts",
+}
 VIETNAMESE_DIACRITIC_RE = re.compile(r"[À-ỹ]")
 _CAPTION_EXTERNAL_TREND_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 
@@ -199,6 +207,84 @@ def _extract_caption_keywords(text: str, *, limit: int = 4) -> list[str]:
 
 def _caption_has_meaningful_source(original_caption: str) -> bool:
     return len(_extract_caption_keywords(original_caption, limit=3)) >= 2
+
+
+def _normalize_caption_context(video_context: dict[str, Any] | None) -> dict[str, str]:
+    if not isinstance(video_context, dict):
+        return {}
+    normalized: dict[str, str] = {}
+    for key in ("campaign_name", "source_platform", "source_kind", "target_page_name", "original_id"):
+        value = _clean_caption_source_text(str(video_context.get(key) or ""))
+        if value:
+            normalized[key] = value
+    return normalized
+
+
+def _build_caption_context_seed_text(video_context: dict[str, Any] | None) -> str:
+    context = _normalize_caption_context(video_context)
+    seeds: list[str] = []
+
+    campaign_name = context.get("campaign_name")
+    if campaign_name and len(_slugify_caption_token(campaign_name)) >= 4:
+        seeds.append(campaign_name)
+
+    source_kind = context.get("source_kind")
+    if source_kind:
+        kind_label = CAPTION_SOURCE_KIND_CONTEXT_LABELS.get(source_kind)
+        if kind_label:
+            seeds.append(kind_label)
+
+    source_platform = context.get("source_platform")
+    if source_platform == "tiktok":
+        seeds.append("video ngắn giải trí")
+    elif source_platform == "youtube":
+        seeds.append("video shorts")
+
+    return _normalize_text(" ".join(seeds))
+
+
+def _resolve_caption_seed_text(original_caption: str, video_context: dict[str, Any] | None = None) -> str:
+    cleaned_original = _clean_caption_source_text(original_caption)
+    if cleaned_original:
+        return cleaned_original
+    return _build_caption_context_seed_text(video_context)
+
+
+def _build_caption_context_reference(video_context: dict[str, Any] | None) -> str:
+    context = _normalize_caption_context(video_context)
+    campaign_name = context.get("campaign_name")
+    if campaign_name and len(_slugify_caption_token(campaign_name)) >= 4:
+        return f'chủ đề "{campaign_name}"'
+
+    source_kind = context.get("source_kind")
+    if source_kind and source_kind in CAPTION_SOURCE_KIND_CONTEXT_LABELS:
+        return CAPTION_SOURCE_KIND_CONTEXT_LABELS[source_kind]
+
+    source_platform = context.get("source_platform")
+    if source_platform == "tiktok":
+        return "kiểu clip ngắn này"
+    if source_platform == "youtube":
+        return "kiểu video shorts này"
+    return "kiểu nội dung này"
+
+
+def _build_caption_context_prompt_block(video_context: dict[str, Any] | None) -> str:
+    context = _normalize_caption_context(video_context)
+    if not context:
+        return ""
+
+    lines: list[str] = []
+    if context.get("campaign_name"):
+        lines.append(f"- Campaign/topic hint: {context['campaign_name']}")
+    if context.get("source_kind"):
+        lines.append(
+            f"- Source type: {CAPTION_SOURCE_KIND_CONTEXT_LABELS.get(context['source_kind'], context['source_kind'])}"
+        )
+    if context.get("source_platform"):
+        lines.append(f"- Platform: {context['source_platform']}")
+    if context.get("target_page_name"):
+        lines.append(f"- Target page: {context['target_page_name']}")
+    return "\nVideo context hints:\n" + "\n".join(lines)
 
 
 def _truncate_caption_words(text: str, *, limit: int) -> str:
@@ -654,14 +740,33 @@ def _build_caption_middle_line(original_caption: str) -> str:
     return "Có một nhịp khá cuốn nên càng xem lại càng muốn biết đoạn sau sẽ thế nào."
 
 
-def _build_caption_fallback(original_caption: str) -> str:
-    trend_context = _get_external_trend_context(original_caption)
-    hook = _build_caption_hook(original_caption)
-    detail = _build_caption_middle_line(original_caption)
-    cta = _build_caption_cta(original_caption)
+def _build_caption_source_remix_line(original_caption: str) -> str:
+    cleaned = _clean_caption_source_text(original_caption)
+    if not cleaned:
+        return ""
+    excerpt = _truncate_caption_words(cleaned, limit=14).rstrip(" .!?")
+    if not excerpt:
+        return ""
+    if len(excerpt.split()) <= 8:
+        return f"{_sentence_case_text(excerpt)} nhưng cách đẩy nhịp trong clip khiến người xem khá dễ bị cuốn."
+    return f"{_sentence_case_text(excerpt)}."
+
+
+def _build_caption_fallback(original_caption: str, *, video_context: dict[str, Any] | None = None) -> str:
+    seed_text = _resolve_caption_seed_text(original_caption, video_context)
+    trend_context = _get_external_trend_context(seed_text)
+    if _caption_has_meaningful_source(original_caption):
+        hook = _build_caption_hook(original_caption)
+        detail = _build_caption_source_remix_line(original_caption) or _build_caption_middle_line(original_caption)
+        cta = _build_caption_cta(original_caption)
+    else:
+        context_reference = _build_caption_context_reference(video_context)
+        hook = f"Nội dung {context_reference} mở đầu nhẹ thôi mà càng xem càng dễ bị giữ lại đấy."
+        detail = "Nhịp clip giữ khá đều nên xem một lúc là dễ tò mò muốn coi tiếp tới cuối luôn."
+        cta = "Xem hết clip rồi kể mình nghe khoảnh khắc nào khiến bạn dừng lại lâu nhất nha."
     hashtags = _build_facebook_hashtags(
-        original_caption,
-        " ".join(f"#{item}" for item in _build_search_intent_hashtags(original_caption)),
+        seed_text,
+        " ".join(f"#{item}" for item in _build_search_intent_hashtags(seed_text)),
         external_hashtag_candidates=trend_context["hashtags"],
     )
     return f"{hook}\n{detail}\n{cta}\n\n{hashtags}".strip()
@@ -671,8 +776,13 @@ def _looks_like_vietnamese_with_diacritics(text: str) -> bool:
     return bool(VIETNAMESE_DIACRITIC_RE.search(text or ""))
 
 
-def _sanitize_generated_caption(generated_caption: str, original_caption: str) -> str:
-    fallback = _build_caption_fallback(original_caption)
+def _sanitize_generated_caption(
+    generated_caption: str,
+    original_caption: str,
+    *,
+    video_context: dict[str, Any] | None = None,
+) -> str:
+    fallback = _build_caption_fallback(original_caption, video_context=video_context)
     if not generated_caption:
         return fallback
 
@@ -689,7 +799,10 @@ def _sanitize_generated_caption(generated_caption: str, original_caption: str) -
         return fallback
 
     if len(body_lines) == 1:
-        body_lines.append(_build_caption_cta(original_caption))
+        if _caption_has_meaningful_source(original_caption):
+            body_lines.append(_build_caption_cta(original_caption))
+        else:
+            body_lines.append("Xem hết clip rồi kể mình nghe cảm nhận của bạn nha.")
 
     normalized_body: list[str] = []
     for index, line in enumerate(body_lines[:3]):
@@ -704,9 +817,10 @@ def _sanitize_generated_caption(generated_caption: str, original_caption: str) -
     if not normalized_body:
         return fallback
 
-    trend_context = _get_external_trend_context(original_caption)
+    seed_text = _resolve_caption_seed_text(original_caption, video_context)
+    trend_context = _get_external_trend_context(seed_text)
     hashtags = _build_facebook_hashtags(
-        original_caption,
+        seed_text,
         generated_caption,
         external_hashtag_candidates=trend_context["hashtags"],
     )
@@ -1359,9 +1473,12 @@ Caption gốc: {original_caption}"""
     return _generate_with_ai(prompt, f"{original_caption}\n\n#giaitri #trending", timeout=30)
 
 
-def generate_caption(original_caption: str) -> str:
-    trend_context = _get_external_trend_context(original_caption)
-    fallback = _build_caption_fallback(original_caption)
+def generate_caption(original_caption: str | None, *, video_context: dict[str, Any] | None = None) -> str:
+    normalized_original_caption = _normalize_text(original_caption or "")
+    seed_text = _resolve_caption_seed_text(normalized_original_caption, video_context)
+    trend_context = _get_external_trend_context(seed_text)
+    fallback = _build_caption_fallback(normalized_original_caption, video_context=video_context)
+    has_meaningful_source = _caption_has_meaningful_source(normalized_original_caption)
     trend_hint_block = ""
     if trend_context["queries"]:
         trend_hint_block = (
@@ -1370,28 +1487,40 @@ def generate_caption(original_caption: str) -> str:
             f"- Related queries: {', '.join(trend_context['queries'][:4])}\n"
             "Use these hints only if they genuinely match the original caption."
         )
+    context_hint_block = _build_caption_context_prompt_block(video_context)
+    if has_meaningful_source:
+        mode_guidance_block = (
+            "3. If the original caption has real substance, stay close to it and creatively remix that same idea instead of inventing a different topic.\n"
+            "4. Keep around 70-85% of the original meaning, keywords, and emotional direction.\n"
+            "5. Only sharpen the hook, rhythm, and viewer pull. Do not replace the core message.\n"
+            "6. Add one short viewer prompt or curiosity line based on the original caption when possible.\n"
+        )
+    else:
+        mode_guidance_block = (
+            "3. There is no reliable original caption, so build a fresh Facebook caption from the available video context hints.\n"
+            "4. If the context hints are sparse, write a broad but still engaging caption that fits a short-form video.\n"
+            "5. Do not claim specific facts that are not present in the hints.\n"
+            "6. Add one short curiosity line that helps pull viewers into the clip.\n"
+        )
     prompt = f"""You are a Facebook Reels copywriter.
 Mandatory rules:
 1. Rewrite the original caption into a Facebook-first caption with 2-3 short lines only.
 2. The opening line must feel smooth, natural, and slightly curiosity-driven, not stiff or robotic.
-3. If the original caption has real substance, stay close to it and creatively remix that same idea instead of inventing a different topic.
-4. If the original caption is empty, too short, too vague, or has no real content, create a plausible Facebook-style caption yourself.
-5. Add one short viewer prompt or curiosity line based on the original caption when possible.
-6. Remove every old hashtag from the source caption.
-7. Add 4-5 relevant hashtags for Facebook only.
-8. The hashtags must match common search intent around the topic, for example review, how-to, tips, experience, product/topic keywords.
-9. Prefer hashtags that real viewers would search for this topic, not generic viral bait.
-10. Never use TikTok-specific hashtags or phrases such as #tiktok, #fyp, #xuhuong, #douyin, #foryou.
-11. Keep the meaning close to the original caption. Do not invent new facts.
-12. Write in natural Vietnamese with full diacritics.
-13. Never write Vietnamese without diacritics.
-14. Do not explain your process. Return caption text only.
-15. If external trend hints are provided, you may borrow only the relevant search phrases and hashtags that fit the same topic exactly.
+{mode_guidance_block}7. Remove every old hashtag from the source caption.
+8. Add 4-5 relevant hashtags for Facebook only.
+9. The hashtags must match common search intent around the topic, for example review, how-to, tips, experience, product/topic keywords.
+10. Prefer hashtags that real viewers would search for this topic, not generic viral bait.
+11. Never use TikTok-specific hashtags or phrases such as #tiktok, #fyp, #xuhuong, #douyin, #foryou.
+12. Keep the meaning close to the original caption when a real source caption exists. Do not invent new facts.
+13. Write in natural Vietnamese with full diacritics.
+14. Never write Vietnamese without diacritics.
+15. Do not explain your process. Return caption text only.
+16. If external trend hints are provided, you may borrow only the relevant search phrases and hashtags that fit the same topic exactly.
 
 Original caption:
-{original_caption}{trend_hint_block}"""
+{normalized_original_caption or "(empty)"}{context_hint_block}{trend_hint_block}"""
     generated = _generate_with_ai(prompt, fallback, timeout=30)
-    return _sanitize_generated_caption(generated, original_caption)
+    return _sanitize_generated_caption(generated, normalized_original_caption, video_context=video_context)
 
 
 def generate_message_reply_with_context(

@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from app.core.time import utc_now
 from app.models.models import Campaign, CampaignStatus, FacebookPage, Video, VideoStatus
 from app.services.google_sheet_products import GoogleSheetSelection
@@ -203,3 +205,83 @@ def test_auto_post_job_skips_manual_campaign_and_posts_auto_campaign(db_session,
     assert saved_auto_video.fb_post_id == "fb-post-auto"
     assert upload_calls["file_path"] == str(auto_video_path)
     assert upload_calls["caption"] == "Auto caption"
+
+
+def test_auto_post_job_prepares_pending_video_when_earliest_schedule_changes(db_session, monkeypatch, tmp_path):
+    downloaded_video_path = tmp_path / "video-rescheduled.mp4"
+    downloaded_video_path.write_bytes(b"rescheduled-video")
+
+    page = FacebookPage(
+        page_id="page-rescheduled",
+        page_name="Page rescheduled",
+        long_lived_access_token=encrypt_secret("page-token"),
+    )
+    db_session.add(page)
+    db_session.commit()
+
+    campaign = Campaign(
+        name="Rescheduled campaign",
+        source_url="https://www.tiktok.com/@demo/video/rescheduled",
+        source_platform="tiktok",
+        source_kind="tiktok_video",
+        status=CampaignStatus.active,
+        auto_post=True,
+        target_page_id=page.page_id,
+        schedule_interval=15,
+    )
+    db_session.add(campaign)
+    db_session.commit()
+    db_session.refresh(campaign)
+
+    pending_video = Video(
+        campaign_id=campaign.id,
+        original_id="video-rescheduled",
+        source_platform="tiktok",
+        source_kind="tiktok_video",
+        source_video_url="https://www.tiktok.com/@demo/video/rescheduled",
+        original_caption="Rescheduled caption",
+        ai_caption="Rescheduled caption",
+        status=VideoStatus.pending,
+        publish_time=utc_now() - timedelta(minutes=1),
+    )
+    db_session.add(pending_video)
+    db_session.commit()
+    db_session.refresh(pending_video)
+
+    download_calls = {}
+    upload_calls = {}
+
+    def fake_download(url, prefix):
+        download_calls["url"] = url
+        download_calls["prefix"] = prefix
+        return str(downloaded_video_path), {}
+
+    def fake_upload(file_path, caption, page_id, access_token):
+        upload_calls["file_path"] = file_path
+        upload_calls["caption"] = caption
+        upload_calls["page_id"] = page_id
+        upload_calls["access_token"] = access_token
+        return {"id": "fb-post-rescheduled"}
+
+    monkeypatch.setattr("app.worker.cron.download_video", fake_download)
+    monkeypatch.setattr("app.worker.cron.upload_video_to_facebook", fake_upload)
+    monkeypatch.setattr("app.worker.cron.create_post_comment", lambda *args, **kwargs: {"id": "comment-auto"})
+    monkeypatch.setattr("app.worker.cron.record_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr("app.services.telegram_bot.notify_telegram", lambda *args, **kwargs: None)
+
+    auto_post_job()
+
+    db_session.expire_all()
+    saved_video = db_session.query(Video).filter(Video.id == pending_video.id).first()
+    assert saved_video is not None
+    assert saved_video.status == VideoStatus.posted
+    assert saved_video.fb_post_id == "fb-post-rescheduled"
+    assert download_calls == {
+        "url": "https://www.tiktok.com/@demo/video/rescheduled",
+        "prefix": "tiktok",
+    }
+    assert upload_calls["file_path"] == str(downloaded_video_path)
+    assert upload_calls["caption"] == "Rescheduled caption"
+    assert upload_calls["page_id"] == page.page_id
+    assert upload_calls["access_token"] == "page-token"
+    assert not downloaded_video_path.exists()

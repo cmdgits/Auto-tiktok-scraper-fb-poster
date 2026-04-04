@@ -1950,12 +1950,24 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ schedule_start_at: scheduleStartAt }),
       }),
+      { showSuccessNotice: false },
     );
     if (payload?.campaign) {
       setCampaignScheduleDrafts((current) => ({
         ...current,
         [campaign.id]: formatUtcIsoForDateTimeLocal(payload.campaign.schedule_start_at),
       }));
+    }
+    if (payload) {
+      const firstPublishLabel = payload.first_publish_time
+        ? formatDateTime(payload.first_publish_time, { year: 'numeric' })
+        : null;
+      showNotice(
+        'success',
+        firstPublishLabel
+          ? `${payload.message} Video đầu tiên hiện được xếp lúc ${firstPublishLabel}.`
+          : (payload.message || 'Đã cập nhật lịch bắt đầu cho chiến dịch.'),
+      );
     }
   };
 

@@ -221,6 +221,38 @@ def test_extract_source_entries_keeps_single_short_when_webpage_url_is_watch(mon
     assert entries[0].source_kind == "youtube_short"
 
 
+def test_extract_source_entries_combines_title_and_description_for_unique_caption_context(monkeypatch):
+    def fake_extract_metadata(_url):
+        return {
+            "entries": [
+                {
+                    "id": "part-2",
+                    "webpage_url": "https://www.youtube.com/shorts/part-2",
+                    "title": "Gia Thien Movie Part 2/3",
+                    "description": "Gia Thien Movie Full Tap",
+                },
+                {
+                    "id": "part-3",
+                    "webpage_url": "https://www.youtube.com/shorts/part-3",
+                    "title": "Gia Thien Movie Part 3/3",
+                    "description": "Gia Thien Movie Full Tap",
+                },
+            ]
+        }
+
+    monkeypatch.setattr("app.services.ytdlp_crawler.extract_metadata", fake_extract_metadata)
+
+    entries = extract_source_entries(
+        "https://www.youtube.com/@creator/shorts",
+        source_platform="youtube",
+        source_kind="youtube_shorts_feed",
+    )
+
+    assert entries[0].original_caption == "Gia Thien Movie Part 2/3\nGia Thien Movie Full Tap"
+    assert entries[1].original_caption == "Gia Thien Movie Part 3/3\nGia Thien Movie Full Tap"
+    assert entries[0].original_caption != entries[1].original_caption
+
+
 def test_extract_metadata_ignores_playlist_entry_errors(monkeypatch):
     captured = {}
 
@@ -382,6 +414,93 @@ def test_sync_campaign_content_uses_schedule_start_at(monkeypatch, db_session):
     assert videos[1].publish_time == start_at + timedelta(minutes=20)
 
 
+def test_sync_campaign_content_keeps_explicit_schedule_start_even_when_page_has_queue(monkeypatch, db_session):
+    fixed_now = datetime(2026, 4, 1, 0, 0, 0)
+    start_at = datetime(2026, 4, 4, 12, 36, 0)
+
+    page = FacebookPage(
+        page_id="page-queue-priority",
+        page_name="Queue priority page",
+        long_lived_access_token="encrypted-token",
+    )
+    db_session.add(page)
+
+    existing_campaign = Campaign(
+        name="Existing queued campaign",
+        source_url="https://www.tiktok.com/@other",
+        source_platform="tiktok",
+        source_kind="tiktok_profile",
+        status=CampaignStatus.active,
+        target_page_id=page.page_id,
+        schedule_interval=30,
+        last_sync_status="idle",
+    )
+    campaign = Campaign(
+        name="Explicit scheduled campaign",
+        source_url="https://www.tiktok.com/@demo",
+        source_platform="tiktok",
+        source_kind="tiktok_profile",
+        status=CampaignStatus.active,
+        target_page_id=page.page_id,
+        schedule_interval=30,
+        schedule_start_at=start_at,
+        last_sync_status="idle",
+    )
+    db_session.add_all([existing_campaign, campaign])
+    db_session.commit()
+    db_session.refresh(existing_campaign)
+    db_session.refresh(campaign)
+
+    db_session.add(
+        Video(
+            campaign_id=existing_campaign.id,
+            original_id="queued-video",
+            source_video_url="https://www.tiktok.com/@other/video/queued-video",
+            original_caption="Queued video",
+            status=VideoStatus.ready,
+            publish_time=datetime(2026, 4, 8, 3, 29, 0),
+        )
+    )
+    db_session.commit()
+
+    def fake_extract_source_entries(_url, source_platform, source_kind):
+        assert source_platform == "tiktok"
+        assert source_kind == "tiktok_profile"
+        from app.services.ytdlp_crawler import NormalizedMediaEntry
+
+        return [
+            NormalizedMediaEntry(
+                original_id="video-explicit",
+                source_video_url="https://www.tiktok.com/@demo/video/video-explicit",
+                original_caption="Caption explicit",
+                title="Video explicit",
+                description="Caption explicit",
+                source_platform="tiktok",
+                source_kind="tiktok_video",
+            ),
+        ]
+
+    def fake_download_video(url, filename_prefix):
+        return (f"/tmp/{filename_prefix}-{url.rsplit('/', 1)[-1]}.mp4", "download-id")
+
+    monkeypatch.setattr("app.services.campaign_jobs.utc_now", lambda: fixed_now)
+    monkeypatch.setattr("app.services.campaign_jobs.extract_source_entries", fake_extract_source_entries)
+    monkeypatch.setattr("app.services.campaign_jobs.download_video", fake_download_video)
+
+    result = sync_campaign_content(
+        str(campaign.id),
+        campaign.source_url,
+        allow_paused=False,
+        source_platform=campaign.source_platform,
+        source_kind=campaign.source_kind,
+    )
+
+    assert result["ok"] is True
+    videos = db_session.query(Video).filter(Video.campaign_id == campaign.id).order_by(Video.publish_time.asc()).all()
+    assert len(videos) == 1
+    assert videos[0].publish_time == start_at
+
+
 def test_update_campaign_schedule_reschedules_waiting_videos(client, auth_headers, db_session, monkeypatch):
     fixed_now = datetime(2026, 4, 1, 0, 0, 0)
     monkeypatch.setattr("app.services.campaign_jobs.utc_now", lambda: fixed_now)
@@ -459,11 +578,64 @@ def test_update_campaign_schedule_reschedules_waiting_videos(client, auth_header
     payload = response.json()
     assert payload["rescheduled_videos"] == 2
     assert payload["campaign"]["schedule_start_at"] == "2026-04-01T01:30:00"
+    assert payload["first_publish_time"] == "2026-04-01T01:30:00"
 
     db_session.refresh(campaign)
     videos = db_session.query(Video).filter(Video.campaign_id == campaign.id).order_by(Video.publish_time.asc()).all()
-    assert videos[0].publish_time == datetime(2026, 4, 1, 9, 15, 0)
-    assert videos[1].publish_time == datetime(2026, 4, 1, 9, 30, 0)
+    assert videos[0].publish_time == datetime(2026, 4, 1, 1, 30, 0)
+    assert videos[1].publish_time == datetime(2026, 4, 1, 1, 45, 0)
+
+
+def test_regenerate_caption_uses_video_context_when_original_caption_is_empty(client, auth_headers, db_session, monkeypatch):
+    page = FacebookPage(
+        page_id="page-caption-empty",
+        page_name="Trạm Dừng Video",
+        long_lived_access_token="encrypted-token",
+    )
+    campaign = Campaign(
+        name="Girl Xinh",
+        source_url="https://www.tiktok.com/@demo/video/123",
+        source_platform="tiktok",
+        source_kind="tiktok_video",
+        status=CampaignStatus.active,
+        target_page_id=page.page_id,
+        schedule_interval=30,
+    )
+    db_session.add_all([page, campaign])
+    db_session.commit()
+    db_session.refresh(campaign)
+
+    video = Video(
+        campaign_id=campaign.id,
+        original_id="video-empty-caption",
+        source_platform="tiktok",
+        source_kind="tiktok_video",
+        source_video_url="https://www.tiktok.com/@demo/video/123",
+        original_caption=None,
+        status=VideoStatus.ready,
+        publish_time=datetime(2026, 4, 1, 8, 0, 0),
+    )
+    db_session.add(video)
+    db_session.commit()
+    db_session.refresh(video)
+
+    captured = {}
+
+    def fake_generate_caption(original_caption, *, video_context=None):
+        captured["original_caption"] = original_caption
+        captured["video_context"] = video_context
+        return "Caption AI moi"
+
+    monkeypatch.setattr("app.api.campaigns.generate_caption", fake_generate_caption)
+
+    response = client.post(f"/campaigns/videos/{video.id}/generate-caption", headers=auth_headers)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["video"]["ai_caption"] == "Caption AI moi"
+    assert captured["original_caption"] == ""
+    assert captured["video_context"]["campaign_name"] == "Girl Xinh"
+    assert captured["video_context"]["target_page_name"] == "Trạm Dừng Video"
 
 
 def test_sync_campaign_content_fails_when_youtube_source_has_no_valid_shorts(monkeypatch, db_session):

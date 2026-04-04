@@ -1,7 +1,6 @@
 import os
 import socket
 import traceback
-from datetime import datetime
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy.orm import Session
@@ -11,14 +10,92 @@ from app.core.database import SessionLocal
 from app.core.time import utc_now
 from app.models.models import Campaign, CampaignStatus, FacebookPage, Video, VideoStatus
 from app.services.ai_generator import generate_caption
+from app.services.campaign_jobs import build_download_prefix
 from app.services.fb_graph import create_post_comment, upload_video_to_facebook
 from app.services.google_sheet_products import build_product_comment_messages, select_random_products_from_google_sheet
 from app.services.observability import record_event, update_worker_heartbeat
 from app.services.security import decrypt_secret
+from app.services.ytdlp_crawler import download_video
 from app.worker.tasks import process_task_queue
 
 scheduler = BackgroundScheduler()
 WORKER_NAME = f"{settings.APP_ROLE}@{socket.gethostname()}"
+
+
+def get_earliest_waiting_video_for_page(db: Session, page_id: str):
+    return (
+        db.query(Video)
+        .join(Campaign)
+        .filter(
+            Campaign.target_page_id == page_id,
+            Campaign.status == CampaignStatus.active,
+            Campaign.auto_post.is_(True),
+            Video.status.in_([VideoStatus.ready, VideoStatus.pending, VideoStatus.downloading]),
+            Video.publish_time.is_not(None),
+        )
+        .order_by(Video.publish_time.asc(), Video.created_at.asc(), Video.id.asc())
+        .first()
+    )
+
+
+def prepare_waiting_video_for_publish(db: Session, page: FacebookPage, video: Video):
+    update_worker_heartbeat(
+        WORKER_NAME,
+        app_role=settings.APP_ROLE,
+        status="chuẩn bị video chờ lịch",
+        current_task_type="prepare_video",
+        current_task_id=str(video.id),
+        details={"page_id": page.page_id, "video_id": str(video.id)},
+        db=db,
+    )
+    video.status = VideoStatus.downloading
+    db.commit()
+
+    try:
+        out_path, _ = download_video(video.source_video_url, build_download_prefix(video.source_platform))
+        if out_path:
+            video.file_path = out_path
+            video.status = VideoStatus.ready
+            video.last_error = None
+            db.commit()
+            record_event(
+                "video",
+                "info",
+                "Đã chuẩn bị video chờ lịch để sẵn sàng đăng.",
+                db=db,
+                details={"video_id": str(video.id), "page_id": page.page_id},
+            )
+            return True
+
+        video.status = VideoStatus.failed
+        video.last_error = "Tải video chờ lịch thất bại."
+        video.retry_count = (video.retry_count or 0) + 1
+        db.commit()
+        return False
+    except Exception as exc:
+        video.status = VideoStatus.failed
+        video.last_error = f"Lỗi tải video chờ lịch: {exc}"
+        video.retry_count = (video.retry_count or 0) + 1
+        db.commit()
+        record_event(
+            "video",
+            "error",
+            "Chuẩn bị video chờ lịch thất bại.",
+            db=db,
+            details={"video_id": str(video.id), "page_id": page.page_id, "error": str(exc)},
+        )
+        return False
+
+
+def build_video_caption_context(video: Video, page: FacebookPage):
+    campaign = video.campaign
+    return {
+        "campaign_name": campaign.name if campaign else None,
+        "source_platform": video.source_platform or (campaign.source_platform if campaign else None),
+        "source_kind": video.source_kind or (campaign.source_kind if campaign else None),
+        "target_page_name": page.page_name,
+        "original_id": video.original_id,
+    }
 
 
 def auto_post_job():
@@ -29,21 +106,17 @@ def auto_post_job():
         pages = db.query(FacebookPage).all()
 
         for page in pages:
-            vid = (
-                db.query(Video)
-                .join(Campaign)
-                .filter(
-                    Campaign.target_page_id == page.page_id,
-                    Campaign.status == CampaignStatus.active,
-                    Campaign.auto_post.is_(True),
-                    Video.status == VideoStatus.ready,
-                    Video.publish_time <= now,
-                )
-                .order_by(Video.publish_time.asc())
-                .first()
-            )
+            vid = get_earliest_waiting_video_for_page(db, page.page_id)
 
             if not vid:
+                continue
+
+            if vid.status == VideoStatus.pending:
+                if not prepare_waiting_video_for_publish(db, page, vid):
+                    continue
+                db.refresh(vid)
+
+            if vid.status != VideoStatus.ready or vid.publish_time > now:
                 continue
 
 
@@ -76,7 +149,10 @@ def auto_post_job():
 
             if not vid.ai_caption:
                 try:
-                    vid.ai_caption = generate_caption(vid.original_caption)
+                    vid.ai_caption = generate_caption(
+                        vid.original_caption or "",
+                        video_context=build_video_caption_context(vid, page),
+                    )
                     db.commit()
                 except Exception as exc:
                     vid.status = VideoStatus.failed
@@ -205,28 +281,8 @@ def auto_post_job():
                     .first()
                 )
                 if next_vid:
-                    from app.services.campaign_jobs import build_download_prefix
-                    from app.services.ytdlp_crawler import download_video
-                    next_vid.status = VideoStatus.downloading
-                    db.commit()
-                    
-                    try:
-                        out_path, _ = download_video(next_vid.source_video_url, build_download_prefix(next_vid.source_platform))
-                        if out_path:
-                            next_vid.file_path = out_path
-                            next_vid.status = VideoStatus.ready
-                            db.commit()
-                            notify_telegram(f"⬇️ Tải thành công video tiếp theo chờ lịch: <code>{next_vid.original_id}</code>")
-                        else:
-                            next_vid.status = VideoStatus.failed
-                            next_vid.last_error = "Tải video chuẩn bị thất bại."
-                            next_vid.retry_count = (next_vid.retry_count or 0) + 1
-                            db.commit()
-                    except Exception as exc:
-                        next_vid.status = VideoStatus.failed
-                        next_vid.last_error = f"Lỗi phụ trợ tải video chuẩn bị: {exc}"
-                        next_vid.retry_count = (next_vid.retry_count or 0) + 1
-                        db.commit()
+                    if prepare_waiting_video_for_publish(db, page, next_vid):
+                        notify_telegram(f"⬇️ Tải thành công video tiếp theo chờ lịch: <code>{next_vid.original_id}</code>")
             else:
                 vid.status = VideoStatus.failed
                 vid.last_error = str(res.get("error", res))

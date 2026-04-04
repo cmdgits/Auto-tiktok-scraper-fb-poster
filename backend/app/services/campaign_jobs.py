@@ -100,6 +100,9 @@ def build_source_page_publish_time(
     now = utc_now()
     start_time = schedule_start_at if schedule_start_at and schedule_start_at > now else now
 
+    if schedule_start_at:
+        return start_time
+
     if page_id and schedule_interval > 0:
         query = (
             db.query(func.max(Video.publish_time))

@@ -75,7 +75,7 @@ def test_generate_caption_creates_plausible_copy_when_original_caption_is_empty(
     lines = [line for line in caption.splitlines() if line.strip()]
 
     assert len(lines) >= 4
-    assert "Lướt tới đây mà bỏ qua thì hơi phí đó nha." in caption
+    assert "Nội dung kiểu nội dung này mở đầu nhẹ thôi mà càng xem càng dễ bị giữ lại đấy." in caption
     assert any(line.startswith("#") for line in lines)
 
 
@@ -131,3 +131,46 @@ def test_generate_caption_fallback_prefers_external_trend_hashtags(monkeypatch):
 
     assert "#reviewserumcapam" in lowered
     assert "#serumcapamdakho" in lowered
+
+
+def test_generate_caption_prompt_requests_light_rewrite_when_source_caption_is_meaningful(monkeypatch):
+    stub_trend_context(monkeypatch)
+    captured = {}
+
+    def fake_generate(prompt, fallback, **kwargs):
+        captured["prompt"] = prompt
+        return fallback
+
+    monkeypatch.setattr(ai_generator, "_generate_with_ai", fake_generate)
+
+    ai_generator.generate_caption("Review serum dưỡng ẩm cho da khô khá ổn và thấm nhanh")
+
+    assert "Keep around 70-85% of the original meaning" in captured["prompt"]
+    assert "Only sharpen the hook, rhythm, and viewer pull" in captured["prompt"]
+
+
+def test_generate_caption_uses_video_context_when_original_caption_is_empty(monkeypatch):
+    captured = {}
+    stub_trend_context(monkeypatch)
+
+    def fake_generate(prompt, fallback, **kwargs):
+        captured["prompt"] = prompt
+        return fallback
+
+    monkeypatch.setattr(ai_generator, "_generate_with_ai", fake_generate)
+
+    caption = ai_generator.generate_caption(
+        "",
+        video_context={
+            "campaign_name": "Girl Xinh",
+            "source_platform": "tiktok",
+            "source_kind": "tiktok_video",
+            "target_page_name": "Trạm Dừng Video",
+        },
+    )
+
+    assert "There is no reliable original caption" in captured["prompt"]
+    assert "Video context hints:" in captured["prompt"]
+    assert "Girl Xinh" in captured["prompt"]
+    assert "Trạm Dừng Video" in captured["prompt"]
+    assert 'chủ đề "Girl Xinh"' in caption

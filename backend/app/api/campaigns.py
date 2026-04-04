@@ -156,6 +156,19 @@ def serialize_video(video: Video, page_name_map=None):
     }
 
 
+def build_video_caption_context(video: Video, page_name_map=None):
+    campaign = video.campaign
+    target_page_id = campaign.target_page_id if campaign else None
+    target_page_name = page_name_map.get(target_page_id) if page_name_map and target_page_id else None
+    return {
+        "campaign_name": campaign.name if campaign else None,
+        "source_platform": video.source_platform or (campaign.source_platform if campaign else None),
+        "source_kind": video.source_kind or (campaign.source_kind if campaign else None),
+        "target_page_name": target_page_name,
+        "original_id": video.original_id,
+    }
+
+
 def build_source_stats(db: Session):
     summary = {
         "tiktok": {"campaigns": 0, "videos": 0, "ready": 0},
@@ -703,17 +716,17 @@ def update_video_caption(video_id: str, payload: VideoCaptionUpdate, db: Session
 @router.post("/videos/{video_id}/generate-caption")
 def regenerate_video_caption(video_id: str, db: Session = Depends(get_db)):
     video = get_video_or_404(db, video_id)
-    if not video.original_caption:
-        raise HTTPException(status_code=400, detail="Video này không có chú thích gốc để AI viết lại.")
-
+    page_name_map = build_page_name_map(db)
     try:
-        video.ai_caption = generate_caption(video.original_caption)
+        video.ai_caption = generate_caption(
+            video.original_caption or "",
+            video_context=build_video_caption_context(video, page_name_map),
+        )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Không thể tạo chú thích AI lúc này: {exc}") from exc
     video.last_error = None
     db.commit()
     db.refresh(video)
-    page_name_map = build_page_name_map(db)
     return {
         "message": f"Đã tạo lại chú thích AI cho video {video.original_id}.",
         "video": serialize_video(video, page_name_map),
