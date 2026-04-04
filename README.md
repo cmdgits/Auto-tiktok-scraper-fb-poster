@@ -1,468 +1,526 @@
 # Social Tool
 
-![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688?logo=fastapi&logoColor=white)
-![React](https://img.shields.io/badge/React-Frontend-61DAFB?logo=react&logoColor=0B1220)
-![Vite](https://img.shields.io/badge/Vite-Build-646CFF?logo=vite&logoColor=white)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-4169E1?logo=postgresql&logoColor=white)
-![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
-![Facebook](https://img.shields.io/badge/Facebook-Webhooks%20%2B%20Graph-1877F2?logo=facebook&logoColor=white)
-![AI](https://img.shields.io/badge/AI-Comment%20%26%20Inbox-111827)
+He thong quan tri fanpage Facebook theo mo hinh "mot dashboard de van hanh toan bo": lay video tu TikTok va YouTube Shorts, tao chien dich, xep lich dang Reels, sinh caption AI, tu dong phan hoi comment va inbox, theo doi worker/task queue, va quan ly cau hinh runtime ngay tren giao dien.
 
-Hệ thống vận hành Facebook Page theo kiểu “một dashboard để quản lý tất cả”: crawl video từ TikTok và YouTube Shorts, tạo campaign, xếp lịch đăng Facebook Reels, sinh caption bằng AI, phản hồi comment, phản hồi inbox Messenger, quản lý task queue/worker, cấu hình runtime ngay trên giao diện, và theo dõi toàn bộ hệ thống trong một nơi.
+README nay mo ta trang thai hien tai cua repo.
 
-README này mô tả đúng trạng thái hiện tại của repo.
+## 1. Muc tieu du an
 
-## Mục lục
+Social Tool duoc xay de giai quyet mot luong van hanh fanpage tuong doi day du:
 
-- [Tổng quan](#tổng-quan)
-- [Tính năng chính](#tính-năng-chính)
-- [Nguồn nội dung hỗ trợ](#nguồn-nội-dung-hỗ-trợ)
-- [Kiến trúc hệ thống](#kiến-trúc-hệ-thống)
-- [Thành phần và cổng mặc định](#thành-phần-và-cổng-mặc-định)
-- [Chạy nhanh với Docker](#chạy-nhanh-với-docker)
-- [Thiết lập lần đầu](#thiết-lập-lần-đầu)
-- [Kết nối Meta app và nhiều fanpage](#kết-nối-meta-app-và-nhiều-fanpage)
-- [Luồng nội dung: TikTok và YouTube Shorts](#luồng-nội-dung-tiktok-và-youtube-shorts)
-- [Luồng AI comment và inbox](#luồng-ai-comment-và-inbox)
-- [Operator inbox workspace](#operator-inbox-workspace)
-- [Runtime config trên dashboard](#runtime-config-trên-dashboard)
-- [Biến môi trường nên giữ ngoài UI](#biến-môi-trường-nên-giữ-ngoài-ui)
-- [Triển khai Docker production](#triển-khai-docker-production)
-- [API chính](#api-chính)
-- [Cấu trúc thư mục](#cấu-trúc-thư-mục)
-- [Kiểm tra chất lượng](#kiểm-tra-chất-lượng)
-- [FAQ](#faq)
-- [Tác giả](#tác-giả)
-- [Ủng hộ qua MoMo](#ủng-hộ-qua-momo)
+- Tao campaign tu link TikTok hoac YouTube Shorts.
+- Dong bo video tu nguon ve hang cho noi dung.
+- Sap lich dang Facebook Reels theo campaign.
+- Tao hoac chinh caption bang AI.
+- Tu dong phan hoi comment Facebook.
+- Tu dong phan hoi inbox Messenger theo ngu canh.
+- Cho operator tiep quan cac cuoc hoi thoai can nguoi that.
+- Giam sat worker, queue, health, log va cau hinh he thong tu mot dashboard duy nhat.
 
-## Tổng quan
+Day khong chi la tool dang bai. Day la mot stack van hanh fanpage gom content pipeline, queue/worker, AI pipeline va workspace cho operator.
 
-Mục tiêu của dự án:
+## 2. Cong nghe su dung
 
-- lấy video từ TikTok hoặc YouTube Shorts theo campaign
-- chuẩn hóa nguồn nội dung và đẩy video vào hàng chờ đăng Facebook Reels
-- dùng AI để hỗ trợ caption, comment và inbox
-- quản lý nhiều fanpage dưới cùng một app Meta
-- cho operator xử lý các cuộc chat cần người thật ngay trên dashboard
-- theo dõi worker, task queue, health, event và runtime config trong cùng một giao diện
+- Backend: FastAPI
+- Frontend: React 19 + Vite
+- Database: PostgreSQL
+- Queue nen: bang `task_queue` trong PostgreSQL
+- Worker: tien trinh Python rieng
+- Video ingestion: `yt-dlp` + `ffmpeg`
+- Reverse proxy frontend: Nginx
+- AI provider: Gemini va OpenAI
+- Trien khai mac dinh: Docker Compose
 
-Hệ thống này không chỉ là tool đăng bài. Nó là một stack vận hành fanpage gồm content pipeline, AI pipeline, operator inbox và giám sát hệ thống.
+## 3. Chuc nang chinh
 
-## Tính năng chính
+- Dang nhap, quan ly user va phan quyen `admin` / `operator`.
+- Tao campaign tu TikTok video, TikTok profile, TikTok shortlink, YouTube Shorts don, YouTube Shorts feed.
+- Tu dong bo video nguon ve queue.
+- Tu sap lich dang theo khoang cach phut giua cac video.
+- Cho phep chinh lai moc bat dau campaign sau khi campaign da duoc tao.
+- Khi nguoi dung nhap gio bat dau cu the, he thong se bam dung gio do cho video chua dang cua campaign.
+- Worker tu tai video dau tien theo lich de san sang dang.
+- Worker tu dang video dung han len fanpage Facebook.
+- Sinh caption AI theo hai che do:
+  - Co caption goc: viet lai nhe, giu sat y cu nhung cuon hon.
+  - Khong co caption goc: tu tao caption tu ngu canh video/campaign.
+- Cho phep chinh tay caption AI truc tiep trong dashboard.
+- Tu dong phan hoi comment Facebook bang AI.
+- Tu dong phan hoi inbox Messenger voi conversation memory.
+- Handoff sang operator khi AI khong nen tra loi.
+- Dashboard van hanh cho task queue, worker heartbeat, system events, health checks.
+- Tu don cac worker mat ket noi khoi dashboard theo lich.
+- Quan ly runtime config ngay tren dashboard va sinh lai `backend/runtime.env`.
 
-- Dashboard React + Tailwind, chia khu rõ ràng để vận hành thực tế.
-- Backend FastAPI cho auth, webhook, API và runtime config.
-- Worker riêng để xử lý sync campaign, retry, AI reply và scheduler.
-- Crawl TikTok và YouTube Shorts bằng `yt-dlp`.
-- Campaign queue và video queue, có retry, priority, chỉnh caption.
-- Prompt AI riêng theo từng fanpage cho comment và inbox.
-- Conversation memory cho inbox:
-  - lịch sử gần
-  - summary
-  - intent
-  - customer facts
-  - handoff sang operator
-- Operator inbox workspace:
-  - danh sách conversation
-  - trạng thái `ai_active`, `operator_active`, `resolved`
-  - trả lời thủ công ngay trên UI
-  - link mở thẳng cuộc chat trên Facebook
-- Import nhiều fanpage từ một app Meta bằng `User Access Token`.
-- Làm mới token fanpage hàng loạt.
-- Xóa fanpage an toàn, chặn xóa nếu vẫn còn campaign dùng tới.
-- Runtime config trực tiếp trên dashboard, đồng thời sinh lại `backend/runtime.env`.
-- Health check sâu hơn cho database, worker, yt-dlp, Facebook Graph, Gemini và task queue.
-- Docker stack đã hardening ở mức production nhỏ: restart policy, healthcheck, log rotation, frontend Nginx static.
+## 4. Nguon noi dung ho tro
 
-## Nguồn nội dung hỗ trợ
+### TikTok
 
-### Đang hỗ trợ
-
-- TikTok video:
+- Video don:
   - `https://www.tiktok.com/@creator/video/...`
-- TikTok profile:
+- Profile:
   - `https://www.tiktok.com/@creator`
-- TikTok shortlink:
+- Shortlink:
   - `https://vt.tiktok.com/...`
   - `https://vm.tiktok.com/...`
-- YouTube Shorts đơn:
+
+### YouTube Shorts
+
+- Shorts don:
   - `https://www.youtube.com/shorts/...`
-- YouTube Shorts feed:
+- Shorts feed:
   - `https://www.youtube.com/@creator/shorts`
   - `https://www.youtube.com/channel/.../shorts`
   - `https://www.youtube.com/user/.../shorts`
   - `https://www.youtube.com/c/.../shorts`
 
-### Chưa hỗ trợ
+### Chua ho tro tot
 
 - `https://www.youtube.com/watch?v=...`
 - `https://youtu.be/...`
-- playlist YouTube thường không phải Shorts feed
+- Playlist YouTube thuong khong phai Shorts feed
 
-## Kiến trúc hệ thống
+## 5. Kien truc he thong
 
-```mermaid
-flowchart LR
-    A["Dashboard (React/Vite + Nginx)"] --> B["Backend API (FastAPI)"]
-    B --> C["PostgreSQL"]
-    B --> D["Task Queue"]
-    D --> E["Worker"]
-    E --> C
-    E --> F["yt-dlp"]
-    E --> G["Gemini API"]
-    H["Facebook Webhook"] --> B
-    E --> I["Facebook Graph API"]
-    J["Cloudflare Tunnel (tùy chọn)"] --> B
+```text
+Frontend Dashboard (React/Vite + Nginx)
+            |
+            v
+      Backend API (FastAPI)
+            |
+            +--> PostgreSQL
+            +--> Webhook Facebook
+            +--> Runtime config / health / auth
+            |
+            v
+      Task Queue trong DB
+            |
+            v
+        Worker Python
+            |
+            +--> yt-dlp / ffmpeg
+            +--> Gemini / OpenAI
+            +--> Facebook Graph API
 ```
 
-Ý nghĩa:
+Nguyen tac van hanh:
 
-- `frontend` chỉ là giao diện vận hành.
-- `backend` nhận request, auth, webhook, health, runtime config.
-- `worker` mới là nơi chạy job nền thật.
-- `db` lưu campaign, video, user, task, log, settings, conversation.
-- `tunnel` chỉ là lựa chọn nhanh để public webhook khi chưa có reverse proxy/domain riêng.
+- `backend` xu ly API, auth, webhook, serialize du lieu va quan tri he thong.
+- `worker` xu ly job nen: sync campaign, tao caption, tra loi AI, auto-post, scheduler.
+- `db` luu toan bo campaign, video, queue, user, log, conversation, runtime settings.
+- `frontend` la dashboard van hanh production.
 
-## Thành phần và cổng mặc định
+## 6. Thanh phan trong Docker Compose
 
-| Service | Vai trò | Port host |
-| --- | --- | --- |
-| `db` | PostgreSQL lưu dữ liệu vận hành | `5432` |
-| `backend` | API, auth, webhook, health, config | `8000` |
-| `worker` | sync campaign, retry, AI jobs, scheduler | không public |
-| `frontend` | dashboard production qua Nginx | `5173 -> 80` |
-| `tunnel` | Cloudflare Tunnel cho webhook | không public |
+Theo [docker-compose.yml](./docker-compose.yml):
 
-Truy cập sau khi chạy:
+- `db`
+  - PostgreSQL 15
+  - cong host: `5432`
+- `backend`
+  - FastAPI API
+  - cong host: `8000`
+- `worker`
+  - tien trinh nen rieng
+  - khong public port
+- `frontend`
+  - Nginx serve React build
+  - cong host: `5173`
+- `tunnel`
+  - Cloudflare Tunnel
+  - tuy chon
 
-- Dashboard: [http://localhost:5173](http://localhost:5173)
-- API docs: [http://localhost:8000/docs](http://localhost:8000/docs)
-- Health nhanh: [http://localhost:8000/health](http://localhost:8000/health)
+Dia chi mac dinh:
 
-## Chạy nhanh với Docker
+- Dashboard: `http://localhost:5173`
+- API: `http://localhost:8000`
+- Swagger: `http://localhost:8000/docs`
+- Health nhanh: `http://localhost:8000/health`
 
-Yêu cầu:
+## 7. Cau truc thu muc
+
+```text
+.
+|-- backend/
+|   |-- alembic/
+|   |-- app/
+|   |   |-- api/
+|   |   |-- core/
+|   |   |-- models/
+|   |   |-- services/
+|   |   `-- worker/
+|   |-- tests/
+|   |-- Dockerfile
+|   |-- runtime.env
+|   `-- runtime.env.example
+|-- frontend/
+|   |-- src/
+|   |-- public/
+|   |-- Dockerfile
+|   `-- nginx.conf
+|-- database/
+|-- docs/
+|-- videos_storage/
+|-- .env.example
+|-- docker-compose.yml
+`-- README.md
+```
+
+## 8. Thanh phan backend quan trong
+
+### API modules
+
+- `backend/app/api/auth.py`
+  - dang nhap, phien, doi mat khau
+- `backend/app/api/users.py`
+  - quan ly user
+- `backend/app/api/campaigns.py`
+  - campaign, video queue, caption, lich dang
+- `backend/app/api/facebook.py`
+  - fanpage, import page, validate token, subscribe messages
+- `backend/app/api/webhooks.py`
+  - webhook Facebook, comment/inbox logs, conversation workspace
+- `backend/app/api/system.py`
+  - health, workers, tasks, events, runtime config
+
+### Services
+
+- `backend/app/services/ytdlp_crawler.py`
+  - crawl metadata video
+- `backend/app/services/source_resolver.py`
+  - chuan hoa loai nguon dau vao
+- `backend/app/services/campaign_jobs.py`
+  - logic sync campaign, lich video
+- `backend/app/services/ai_generator.py`
+  - caption AI, reply AI
+- `backend/app/services/task_queue.py`
+  - queue, retry, stale recovery
+- `backend/app/services/observability.py`
+  - system event, worker heartbeat, cleanup stale workers
+
+### Worker
+
+- `backend/app/worker/run.py`
+  - tien trinh worker chinh
+- `backend/app/worker/cron.py`
+  - scheduler jobs
+- `backend/app/worker/tasks.py`
+  - xu ly task queue
+- `backend/app/worker/healthcheck.py`
+  - healthcheck cho container worker
+
+## 9. Thanh phan frontend quan trong
+
+- `frontend/src/App.jsx`
+  - state lon nhat cua dashboard, request API, dieu phoi section
+- `frontend/src/components/dashboard/CampaignSection.jsx`
+  - quan tri campaign
+- `frontend/src/components/dashboard/QueueSection.jsx`
+  - hang cho video va caption
+- `frontend/src/components/dashboard/MessagesSection.jsx`
+  - workspace inbox AI / operator
+- `frontend/src/components/dashboard/SecuritySection.jsx`
+  - mat khau, user, reset password
+- `frontend/src/components/dashboard/OperationsSection.jsx`
+  - worker, queue, events, health
+
+## 10. Chay nhanh bang Docker
+
+Yeu cau:
 
 - Docker Desktop
 - Docker Compose
-- Nếu dùng AI thật: `GEMINI_API_KEY`
-- Nếu dùng webhook thật: domain HTTPS public hoặc Cloudflare Tunnel
 
-Khởi động stack cơ bản:
+Chay stack chinh:
 
 ```bash
 docker compose up -d --build db backend worker frontend
 ```
 
-Nếu muốn public webhook bằng tunnel:
+Neu muon chay them Cloudflare Tunnel:
 
 ```bash
 docker compose up -d --build db backend worker frontend tunnel
 ```
 
-Tài khoản mặc định lần đầu:
-
-- username: `admin`
-- password: `admin123`
-
-Lưu ý quan trọng cho clone mới:
-
-- `docker-compose.yml` đã fallback sang `backend/runtime.env.example` nếu `backend/runtime.env` chưa tồn tại
-- vì vậy clone mới sẽ không còn lỗi thiếu `backend/runtime.env`
-
-## Thiết lập lần đầu
-
-### 1. Chạy stack
-
-```bash
-docker compose up -d --build db backend worker frontend
-```
-
-### 2. Đăng nhập dashboard
-
-Vào [http://localhost:5173](http://localhost:5173) bằng:
-
-- `admin`
-- `admin123`
-
-### 3. Đổi mật khẩu admin
-
-Vào khu `Bảo mật` và đổi ngay mật khẩu mặc định.
-
-### 4. Cấu hình runtime trên dashboard
-
-Điền ít nhất:
-
-- `BASE_URL`
-- `FB_VERIFY_TOKEN`
-- `FB_APP_SECRET`
-- `GEMINI_API_KEY`
-- `TUNNEL_TOKEN` nếu dùng tunnel
-
-### 5. Kết nối fanpage
-
-Khuyến nghị:
-
-1. dán `User Access Token` của app Meta
-2. bấm `Tải danh sách fanpage`
-3. chọn các page cần dùng
-4. bấm `Import fanpage đã chọn`
-
-Fallback:
-
-- nhập tay `page_id`, `page_name`, `Page Access Token`
-
-### 6. Kiểm tra webhook và page subscription
-
-Sau khi lưu page:
-
-- bấm kiểm tra token
-- bấm đăng ký page vào app
-- xác nhận page đang subscribe `feed + messages`
-
-### 7. Tạo campaign đầu tiên
-
-- dán link TikTok hoặc YouTube Shorts
-- tạo campaign
-- bấm sync
-- kiểm tra video queue
-- chỉnh caption nếu cần
-
-## Kết nối Meta app và nhiều fanpage
-
-Hệ thống hiện hỗ trợ mô hình:
-
-- một app Meta
-- nhiều fanpage
-- mỗi page lưu riêng `page_id`, `page_name`, `Page Access Token`, prompt AI, trạng thái automation
-
-### Luồng khuyến nghị
-
-Sử dụng `User Access Token` để:
-
-- tải danh sách page từ app Meta
-- import nhiều page cùng lúc
-- làm mới `Page Access Token` hàng loạt cho page đã có
-
-### Khi nào dùng gì
-
-| Token | Dùng cho việc gì |
-| --- | --- |
-| `User Access Token` | tải danh sách page quản lý, import nhiều page, refresh page token |
-| `Page Access Token` | comment, inbox, post video, webhook/page action thật |
-
-### Quản lý fanpage trên dashboard
-
-Bạn có thể:
-
-- import page hàng loạt
-- validate từng page
-- subscribe page vào app
-- refresh token page hàng loạt
-- xóa page đã thêm
-
-Hệ thống sẽ chặn xóa nếu page vẫn đang được campaign sử dụng.
-
-## Luồng nội dung: TikTok và YouTube Shorts
-
-1. Tạo campaign với một URL nguồn.
-2. Backend dùng source resolver để xác định:
-   - TikTok video/profile/shortlink
-   - YouTube Shorts đơn/feed
-3. Worker sync campaign.
-4. `yt-dlp` lấy metadata và chuẩn hóa về entry chung.
-5. Mỗi entry hợp lệ tạo thành `video` trong queue, có `source_platform` và `source_kind`.
-6. Worker tải file video vào `downloads`.
-7. Video được xếp lịch đăng, retry hoặc generate caption khi cần.
-
-### Những gì dashboard hiển thị rõ
-
-- campaign source platform
-- source kind
-- filter TikTok vs YouTube Shorts
-- thống kê nguồn trong `Tổng quan`, `Chiến dịch`, `Lịch đăng`
-- biểu đồ xu hướng 7 ngày cho từng nguồn
-
-## Luồng AI comment và inbox
-
-### Comment
-
-1. Facebook gửi event `feed`.
-2. Backend verify chữ ký webhook.
-3. Log comment vào `interaction_logs`.
-4. Nếu page bật auto-reply comment, backend tạo task.
-5. Worker gọi AI và gửi reply qua Facebook Graph API.
-
-### Inbox
-
-1. Facebook gửi event `messages`.
-2. Backend lưu `inbox_message_logs`.
-3. Hệ thống kiểm tra:
-   - page có bật inbox AI không
-   - có đang trong khung giờ cho phép không
-   - có dính cooldown theo sender không
-   - conversation có đang handoff cho operator không
-4. Nếu hợp lệ, tạo task `message_reply`.
-5. Worker dựng ngữ cảnh:
-   - lịch sử chat gần
-   - summary cuộc trò chuyện
-   - intent
-   - customer facts
-6. AI trả structured output:
-   - `reply`
-   - `summary_update`
-   - `intent`
-   - `customer_facts`
-   - `handoff`
-7. Hệ thống cập nhật conversation state và gửi phản hồi nếu còn ở chế độ AI.
-
-## Operator inbox workspace
-
-Khu `Tin nhắn AI` hiện không còn là log đơn thuần, mà là một mini inbox cho operator.
-
-### Những gì có sẵn
-
-- danh sách conversation theo `conversation_id`
-- filter:
-  - `Tất cả`
-  - `Cần operator`
-  - `AI đang xử lý`
-  - `Đã xử lý`
-- panel chi tiết conversation
-- timeline chat
-- `summary`, `intent`, `customer_facts`
-- link mở thẳng cuộc chat trên Facebook
-- assign operator
-- note nội bộ
-- form phản hồi thủ công ngay trên dashboard
-
-### Trạng thái cuộc trò chuyện
-
-- `ai_active`: AI vẫn được phép trả lời
-- `operator_active`: đã handoff, AI dừng trả lời
-- `resolved`: operator đã xử lý xong
-
-### Quy tắc hiện tại
-
-- nếu conversation đã chuyển operator, AI không phản hồi nữa
-- operator có thể trả lời trực tiếp trên UI
-- khi đánh dấu đã xử lý, conversation ra khỏi danh sách cần xử lý
-- nếu khách nhắn lại sau khi `resolved`, hệ thống có thể mở lại conversation theo logic hiện tại của backend
-
-## Runtime config trên dashboard
-
-Những biến có thể sửa trực tiếp trên UI:
-
-| Biến | Vai trò | Ghi chú |
-| --- | --- | --- |
-| `BASE_URL` | URL public của hệ thống | áp dụng ngay |
-| `FB_VERIFY_TOKEN` | verify webhook Facebook | áp dụng ngay |
-| `FB_APP_SECRET` | verify chữ ký webhook POST | áp dụng ngay |
-| `GEMINI_API_KEY` | AI caption/comment/inbox | áp dụng ngay |
-| `TUNNEL_TOKEN` | token Cloudflare Tunnel | cần recreate `tunnel` |
-
-Cách hoạt động:
-
-1. Dashboard lưu giá trị vào database.
-2. Backend mã hóa secret cần bảo vệ.
-3. Backend sinh lại `backend/runtime.env`.
-4. `backend`, `worker`, `system overview` và health checks dùng lại các giá trị này.
-
-## Biến môi trường nên giữ ngoài UI
-
-Các biến sau vẫn nên do tầng triển khai quản lý:
-
-| Biến | Vai trò |
-| --- | --- |
-| `DATABASE_URL` | kết nối PostgreSQL |
-| `JWT_SECRET` | ký JWT |
-| `TOKEN_ENCRYPTION_SECRET` | mã hóa secret lưu DB |
-| `AUTH_TOKEN_EXPIRE_MINUTES` | thời hạn token |
-| `DEFAULT_ADMIN_USERNAME` | bootstrap admin |
-| `ADMIN_PASSWORD` | bootstrap password |
-| `AUTO_CREATE_SCHEMA` | auto tạo schema |
-| `SCHEDULER_ENABLED` | bật/tắt scheduler |
-| `APP_ROLE` | `api` hoặc `worker` |
-| `TASK_RETRY_BASE_SECONDS` | retry task queue |
-| `TASK_RETRY_MAX_SECONDS` | trần retry task queue |
-| `TASK_LOCK_STALE_SECONDS` | phát hiện task `processing` kẹt |
-| `EXTERNAL_HTTP_TIMEOUT` | timeout gọi dịch vụ ngoài |
-| `HTTP_RETRY_ATTEMPTS` | số lần retry HTTP |
-| `HTTP_RETRY_BASE_SECONDS` | backoff HTTP |
-| `HTTP_RETRY_MAX_SECONDS` | trần backoff HTTP |
-| `LOG_LEVEL` | mức log |
-
-Xem mẫu đầy đủ tại [`.env.example`](./.env.example) và [`backend/runtime.env.example`](./backend/runtime.env.example).
-
-## Triển khai Docker production
-
-### Những gì đã harden trong `docker-compose.yml`
-
-- `restart: unless-stopped`
-- `init: true`
-- `stop_grace_period` cho các service chính
-- healthcheck cho:
-  - `db`
-  - `backend`
-  - `worker`
-  - `frontend`
-- log rotation Docker:
-  - `max-size=20m`
-  - `max-file=5`
-- `frontend` là image production multi-stage, serve static bằng Nginx
-
-### Frontend production runtime
-
-Frontend không còn chạy Vite dev server trong container production.
-
-Hiện tại:
-
-- stage build: `node:20-alpine`
-- stage runtime: `nginx:1.27-alpine`
-- Nginx serve `dist/`
-- proxy `/api` sang `backend:8000`
-- proxy `/downloads` sang `backend:8000/downloads`
-- giữ route SPA qua `try_files ... /index.html`
-
-### Checklist deploy
-
-Trước khi deploy:
-
-```bash
-python -m compileall backend/app backend/alembic
-python -m pytest -q backend/tests
-cd frontend && npm run lint && npm run build
-docker compose config
-```
-
-Khi deploy:
-
-```bash
-docker compose up -d --build db backend worker frontend
-```
-
-Nếu đổi `TUNNEL_TOKEN`:
-
-```bash
-docker compose up -d --force-recreate tunnel
-```
-
-Theo dõi sau deploy:
+Xem log:
 
 ```bash
 docker compose logs -f backend worker frontend
 ```
 
-Kiểm tra thêm:
+Dung stack:
 
-- `GET /health`
-- `GET /system/health`
-- dashboard `Tổng quan`
-- một campaign sync thật
-- một comment thật
-- một inbox thật
+```bash
+docker compose down
+```
 
-## API chính
+## 11. Tai khoan mac dinh
+
+Sau khi khoi dong lan dau:
+
+- username: `admin`
+- password: `admin123`
+
+Viec nen lam ngay:
+
+- dang nhap dashboard
+- doi mat khau admin
+- kiem tra `Bao mat`
+- cau hinh runtime can thiet
+
+## 12. Runtime config va bien moi truong
+
+### File env mau
+
+- [`.env.example`](./.env.example)
+- [`backend/runtime.env.example`](./backend/runtime.env.example)
+
+### Runtime config co the quan ly tren dashboard
+
+- `BASE_URL`
+- `FB_VERIFY_TOKEN`
+- `FB_APP_SECRET`
+- `GEMINI_API_KEY`
+- `OPENAI_API_KEY`
+- `SERPAPI_API_KEY`
+- `TREND_GEO`
+- `TREND_SEARCH_ENDPOINT`
+- `TREND_SEARCH_API_KEY`
+- `TUNNEL_TOKEN`
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_CHAT_ID`
+- `ADMIN_PASSWORD`
+
+Dashboard luu gia tri vao database va sinh lai file:
+
+- [`backend/runtime.env`](./backend/runtime.env)
+
+### Bien nen giu o tang trien khai
+
+- `DATABASE_URL`
+- `JWT_SECRET`
+- `TOKEN_ENCRYPTION_SECRET`
+- `AUTH_TOKEN_EXPIRE_MINUTES`
+- `DEFAULT_ADMIN_USERNAME`
+- `DEFAULT_ADMIN_DISPLAY_NAME`
+- `SCHEDULER_ENABLED`
+- `BACKGROUND_JOBS_MODE`
+- `APP_ROLE`
+- `LOG_LEVEL`
+- `TASK_LOCK_STALE_SECONDS`
+- `WORKER_STALE_SECONDS`
+- `HTTP_RETRY_ATTEMPTS`
+- `HTTP_RETRY_BASE_SECONDS`
+- `HTTP_RETRY_MAX_SECONDS`
+
+## 13. Thiet lap lan dau sau khi chay stack
+
+### Buoc 1: mo dashboard
+
+- `http://localhost:5173`
+
+### Buoc 2: dang nhap admin
+
+- dung tai khoan mac dinh
+
+### Buoc 3: doi mat khau admin
+
+- vao khu `Bao mat`
+- doi ngay mat khau mac dinh
+
+### Buoc 4: cau hinh runtime
+
+Toi thieu nen dien:
+
+- `BASE_URL`
+- `FB_VERIFY_TOKEN`
+- `FB_APP_SECRET`
+- it nhat mot AI key: `GEMINI_API_KEY` hoac `OPENAI_API_KEY`
+
+### Buoc 5: ket noi fanpage
+
+He thong ho tro hai cach:
+
+- import nhieu page bang `User Access Token`
+- them thu cong tung page bang `Page Access Token`
+
+### Buoc 6: validate fanpage
+
+Sau khi them page, nen:
+
+- kiem tra token page
+- subscribe page vao app
+- kiem tra webhook nhan `feed` va `messages`
+
+### Buoc 7: tao campaign dau tien
+
+- dan link nguon
+- chon fanpage dich
+- chon khoang cach dang
+- nhap gio bat dau neu muon co dinh
+- tao campaign
+- sync campaign
+
+## 14. Luong tao campaign va dang video
+
+Luong co ban:
+
+1. Nguoi dung tao campaign voi URL nguon.
+2. Backend chuan hoa loai nguon.
+3. Worker sync campaign va lay metadata video tu `yt-dlp`.
+4. Moi video duoc luu thanh ban ghi `Video`.
+5. He thong xep `publish_time` theo `schedule_interval`.
+6. Neu campaign co `schedule_start_at`, video chua dang se bam dung moc do.
+7. Worker chuan bi video dau tien va doi sang `ready`.
+8. Den gio, worker tu dang video len Facebook.
+9. Sau khi dang xong, worker chuan bi video tiep theo.
+
+Diem quan trong hien tai:
+
+- Khi sua hoac luu lai lich bat dau campaign, he thong uu tien dung gio nguoi dung nhap.
+- Worker co the tu chuan bi video `pending` dau tien khi den lich.
+- Worker stale tu duoc don khoi dashboard ma khong can bam nut thu cong.
+
+## 15. Quan ly lich dang
+
+Trong dashboard:
+
+- co the chinh `Ngay gio bat dau moi`
+- co the khoi phuc ve moc hien co
+- co the bo trong de quay ve mode khong co dinh gio bat dau
+
+Hanh vi hien tai:
+
+- Neu co `schedule_start_at`, campaign se bam moc do.
+- Neu khong co `schedule_start_at`, he thong xep theo hang cho fanpage.
+- Chinh lich chi ap dung cho cac video chua dang cua campaign.
+
+## 16. Caption AI
+
+Caption AI hien co hai che do chinh:
+
+### Video co caption goc
+
+- AI giu sat y caption goc
+- chi rewrite nhe cho muot hon, co hook hon, hut xem hon
+- khong doi sang chu de khac
+- han che bia them fact khong co trong caption nguon
+
+### Video khong co caption goc
+
+- AI tu tao caption tu ngu canh video
+- dung thong tin nhu:
+  - ten campaign
+  - platform
+  - source kind
+  - fanpage dich
+  - original id
+- muc tieu la tao caption hop kieu video ngan, tu nhien, co hook va CTA
+
+### Caption AI trong he thong
+
+- worker co the tu generate truoc khi dang
+- nguoi dung co the bam generate lai tung video
+- nguoi dung co the sua tay caption AI trong queue
+
+## 17. Comment AI va Inbox AI
+
+### Comment AI
+
+Luong:
+
+1. Facebook gui webhook comment.
+2. Backend xac thuc request.
+3. He thong luu `InteractionLog`.
+4. Neu page bat auto-reply comment, backend day task vao queue.
+5. Worker goi AI va reply qua Facebook Graph API.
+
+### Inbox AI
+
+Luong:
+
+1. Facebook gui webhook message.
+2. Backend luu `InboxMessageLog`.
+3. He thong dung `InboxConversation`.
+4. Neu hoi thoai duoc phep AI xu ly, backend tao task reply.
+5. Worker tao phan hoi co ngu canh tu:
+   - conversation summary
+   - recent turns
+   - customer facts
+   - page prompt / knowledge
+6. Neu AI yeu cau handoff, conversation chuyen sang `operator_active`.
+
+## 18. Workspace cho operator
+
+Phan `Tin nhan AI` tren dashboard ho tro:
+
+- xem danh sach conversation
+- loc theo trang thai
+- xem timeline chat
+- xem summary / intent / facts
+- gan nguoi xu ly
+- ghi chu noi bo
+- tra loi thu cong ngay tren UI
+- chuyen conversation sang `resolved`
+
+Trang thai chinh:
+
+- `ai_active`
+- `operator_active`
+- `resolved`
+
+## 19. Fanpage va token
+
+He thong hien ho tro mo hinh:
+
+- mot app Meta
+- nhieu fanpage
+- moi fanpage co cau hinh automation rieng
+
+Loai token:
+
+- `User Access Token`
+  - dung de discover/import nhieu page
+  - refresh page token hang loat
+- `Page Access Token`
+  - dung de post video, comment, inbox, subscribe page
+
+## 20. Worker, task queue va health
+
+### Queue
+
+Task nen duoc luu trong bang `task_queue`.
+
+Trang thai:
+
+- `queued`
+- `processing`
+- `completed`
+- `failed`
+
+### Worker heartbeat
+
+Worker cap nhat heartbeat dinh ky vao bang `worker_heartbeats`.
+
+Thong tin luu:
+
+- `worker_name`
+- `app_role`
+- `status`
+- `current_task_id`
+- `current_task_type`
+- `last_seen_at`
+
+### Tu don worker mat ket noi
+
+Hien tai:
+
+- API van co nut don tay: `POST /system/workers/cleanup`
+- ngoai ra scheduler da tu don stale worker theo chu ky
+- worker stale se tu bien mat khoi dashboard sau khi qua han heartbeat
+
+## 21. API chinh
 
 ### Auth
 
@@ -478,22 +536,23 @@ Kiểm tra thêm:
 - `POST /users/{user_id}/reset-password`
 - `DELETE /users/{user_id}`
 
-### Facebook pages
+### Facebook
 
+- `GET /facebook/config`
 - `POST /facebook/config`
 - `POST /facebook/config/discover-pages`
 - `POST /facebook/config/import-pages`
 - `POST /facebook/config/refresh-pages`
-- `GET /facebook/config`
-- `DELETE /facebook/config/{page_id}`
-- `PATCH /facebook/config/{page_id}/automation`
 - `GET /facebook/config/{page_id}/validate`
 - `POST /facebook/config/{page_id}/subscribe-messages`
+- `PATCH /facebook/config/{page_id}/automation`
+- `DELETE /facebook/config/{page_id}`
 
 ### Campaigns
 
 - `POST /campaigns/`
 - `GET /campaigns/`
+- `PATCH /campaigns/{campaign_id}/schedule`
 - `POST /campaigns/{campaign_id}/sync`
 - `POST /campaigns/{campaign_id}/pause`
 - `POST /campaigns/{campaign_id}/resume`
@@ -505,7 +564,7 @@ Kiểm tra thêm:
 - `POST /campaigns/videos/{video_id}/generate-caption`
 - `POST /campaigns/videos/{video_id}/retry`
 
-### Webhooks và inbox workspace
+### Webhooks va inbox workspace
 
 - `GET /webhooks/fb`
 - `POST /webhooks/fb`
@@ -523,45 +582,47 @@ Kiểm tra thêm:
 - `GET /system/health`
 - `GET /system/runtime-config`
 - `PUT /system/runtime-config`
+- `POST /system/runtime-config/verify-tunnel-token`
+- `POST /system/ai-preview`
 - `GET /system/tasks`
 - `GET /system/events`
 - `GET /system/workers`
 - `POST /system/workers/cleanup`
 
-Schema chi tiết có tại [http://localhost:8000/docs](http://localhost:8000/docs).
+Chi tiet schema xem tai:
 
-## Cấu trúc thư mục
+- `http://localhost:8000/docs`
 
-```text
-.
-├── backend/
-│   ├── alembic/                  # migration database
-│   ├── app/
-│   │   ├── api/                  # auth, users, campaigns, facebook, webhooks, system
-│   │   ├── core/                 # config, db, time
-│   │   ├── models/               # ORM models
-│   │   ├── services/             # AI, Facebook Graph, crawler, runtime config, queue, health
-│   │   └── worker/               # worker loop, scheduler, task handlers, healthcheck
-│   ├── tests/                    # pytest backend
-│   └── runtime.env               # file runtime sinh từ dashboard
-├── frontend/
-│   ├── src/
-│   │   ├── App.jsx               # dashboard chính
-│   │   └── index.css             # theme và style
-│   ├── Dockerfile
-│   └── nginx.conf
-├── database/                     # volume PostgreSQL local
-├── videos_storage/               # video tải tạm
-├── downloads/                    # artifacts phục vụ backend nếu có
-├── docs/
-│   ├── dashboard-layout.svg
-│   └── momo-qr.png
-├── docker-compose.yml
-├── .env.example
-└── README.md
+## 22. Chay local khong dung Docker
+
+### Backend
+
+```bash
+cd backend
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+alembic upgrade head
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-## Kiểm tra chất lượng
+### Worker
+
+```bash
+cd backend
+.venv\Scripts\activate
+python -m app.worker.run
+```
+
+### Frontend
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+## 23. Build va kiem tra chat luong
 
 ### Backend
 
@@ -579,90 +640,97 @@ npm run lint
 npm run build
 ```
 
-### Docker config
+### Docker
 
 ```bash
 docker compose config
+docker compose up -d --build
 ```
 
-## FAQ
+## 24. Van hanh production nho voi Docker
 
-### Clone mới bị lỗi thiếu `backend/runtime.env`?
+Theo file compose hien tai:
 
-Không còn nữa nếu dùng bản mới của repo. Compose sẽ fallback sang `backend/runtime.env.example`.
-
-Nếu muốn tạo file thật thủ công:
+- service deu co `restart: unless-stopped`
+- co `healthcheck`
+- co `init: true`
+- co log rotation
+- frontend chay Nginx production thay vi Vite dev server
+- worker chay lenh:
 
 ```bash
-copy .env.example backend\runtime.env
+alembic upgrade head && python -m app.worker.run
 ```
 
-### Có bắt buộc dùng Cloudflare Tunnel không?
+Khuyen nghi khi deploy:
 
-Không. Nếu bạn đã có domain và reverse proxy HTTPS, chỉ cần cấu hình `BASE_URL` đúng là được.
+- dat `JWT_SECRET` that
+- dat `TOKEN_ENCRYPTION_SECRET` that
+- dung domain HTTPS that cho `BASE_URL`
+- theo doi `/system/health`
+- theo doi log `backend` va `worker`
 
-### Có thể dùng một app Meta cho nhiều page không?
+## 25. FAQ
 
-Có. Đây là luồng khuyến nghị hiện tại:
+### Clone moi nhung chua co `backend/runtime.env` thi sao?
 
-- dán `User Access Token`
-- tải danh sách page
-- chọn nhiều page
-- import vào hệ thống
+Compose da fallback sang `backend/runtime.env.example`, nen stack van co the len duoc.
 
-### `Page Access Token` có dùng để liệt kê tất cả page được không?
+### Co bat buoc dung Cloudflare Tunnel khong?
 
-Không. Nó chỉ dùng tốt cho đúng một page. Muốn tải danh sách nhiều page, phải dùng `User Access Token`.
+Khong. Neu ban co san domain HTTPS va reverse proxy thi chi can `BASE_URL` public dung la duoc.
 
-### Vì sao comment hoặc inbox không đổ vào hệ thống?
+### Vi sao video khong dang dung gio?
 
-Thường do một trong các nguyên nhân:
+Cac nguyen nhan thuong gap:
 
-- `BASE_URL` chưa public đúng
-- webhook Meta chưa trỏ đúng `/webhooks/fb`
-- page chưa subscribe vào app
-- app chưa subscribe `feed` hoặc `messages`
-- `FB_APP_SECRET` sai hoặc thiếu
-- token page sai loại hoặc hết hạn
+- worker chua chay
+- video dau tien con `pending` nhung worker cu chua chuan bi
+- fanpage/token loi
+- truoc day campaign bi lech lich cu, can luu lai moc bat dau sau khi update code
 
-### Vì sao YouTube Shorts hoặc TikTok sync bị chậm?
+### Vi sao comment hoac inbox khong vao he thong?
 
-Nguyên nhân thường nằm ở:
+- `BASE_URL` chua public dung
+- `FB_VERIFY_TOKEN` sai
+- `FB_APP_SECRET` sai hoac thieu
+- page chua subscribe vao app
+- token page het han hoac sai loai
 
-- nguồn gốc video chậm từ nền tảng
-- `yt-dlp` xử lý feed lớn
-- mạng ra ngoài chậm
-- worker đang có nhiều task khác
+### Vi sao AI khong tra loi inbox?
 
-Nên kiểm tra:
+- page chua bat message automation
+- conversation dang `operator_active`
+- worker khong online
+- chua cau hinh AI key
 
-- `system/health`
-- `tasks`
-- log `worker`
-- dependency `yt_dlp`
+### Vi sao generate caption truoc day bao loi khi video khong co caption goc?
 
-### Vì sao inbox có log nhưng AI không trả lời?
+Hien tai hanh vi nay da duoc mo lai. He thong se dung ngu canh video de tao caption moi thay vi chan.
 
-Kiểm tra:
+## 26. Goi y quy trinh van hanh thuc te
 
-- page đã bật inbox auto-reply chưa
-- có đang ngoài khung giờ không
-- sender có đang trong cooldown không
-- conversation có đang `operator_active` không
-- worker có đang sống không
-- `GEMINI_API_KEY` có hợp lệ không
+Mot flow gon de dung hang ngay:
 
-### Vì sao sau khi chuyển operator thì AI không trả lời nữa?
+1. Kiem tra `Tong quan` va `Van hanh`.
+2. Kiem tra worker online va queue khong bi fail nhieu.
+3. Sync campaign moi hoac dong bo lai campaign cu.
+4. Ra `Lich dang`, chinh caption AI neu can.
+5. Theo doi `Tin nhan AI` de xu ly hoi thoai can operator.
+6. Kiem tra `Bao mat` va user neu co nhan su moi.
 
-Đó là hành vi đúng. Khi conversation đã `operator_active`, AI sẽ dừng phản hồi cho tới khi operator xử lý xong hoặc bật lại AI.
+## 27. Ghi chu cuoi
 
-### Có thể mở thẳng cuộc chat trên Facebook từ dashboard không?
+Repo nay dang di theo huong "tool van hanh thuc chien", nen nhieu hanh vi duoc toi uu truc tiep cho dashboard va workflow noi bo:
 
-Có. Conversation hiện có `facebook_thread_url` và UI có link `Mở trên Facebook`.
+- uu tien van hanh bang UI
+- worker tach rieng khoi API
+- runtime config co the doi ngay trong dashboard
+- queue va worker co quan sat trang thai ro rang
 
-## Tác giả
+Neu can mo rong tiep, cac huong hop ly nhat la:
 
-
-
-- Kênh hỗ trợ: `MoMo`
-- Ghi chú chuyển khoản: `Ung ho Social Tool`
+- them nhieu style caption theo loai noi dung
+- them batch actions cho queue
+- them analytics theo campaign/page
+- them retry policy tinh hon cho Graph API va AI provider
