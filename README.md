@@ -1,62 +1,62 @@
 # Social Tool
 
-He thong quan tri fanpage Facebook theo mo hinh "mot dashboard de van hanh toan bo": lay video tu TikTok va YouTube Shorts, tao chien dich, xep lich dang Reels, sinh caption AI, tu dong phan hoi comment va inbox, theo doi worker/task queue, va quan ly cau hinh runtime ngay tren giao dien.
+Hệ thống quản trị fanpage Facebook theo mô hình "một dashboard để vận hành toàn bộ": lấy video từ TikTok và YouTube Shorts, tạo chiến dịch, xếp lịch đăng Reels, sinh caption AI, tự động phản hồi comment và inbox, theo dõi worker/task queue, và quản lý cấu hình runtime ngay trên giao diện.
 
-README nay mo ta trang thai hien tai cua repo.
+README này mô tả trạng thái hiện tại của repo.
 
-## 1. Muc tieu du an
+## 1. Mục tiêu dự án
 
-Social Tool duoc xay de giai quyet mot luong van hanh fanpage tuong doi day du:
+Social Tool được xây để giải quyết một luồng vận hành fanpage tương đối đầy đủ:
 
-- Tao campaign tu link TikTok hoac YouTube Shorts.
-- Dong bo video tu nguon ve hang cho noi dung.
-- Sap lich dang Facebook Reels theo campaign.
-- Tao hoac chinh caption bang AI.
-- Tu dong phan hoi comment Facebook.
-- Tu dong phan hoi inbox Messenger theo ngu canh.
-- Cho operator tiep quan cac cuoc hoi thoai can nguoi that.
-- Giam sat worker, queue, health, log va cau hinh he thong tu mot dashboard duy nhat.
+- Tạo campaign từ link TikTok hoặc YouTube Shorts.
+- Đồng bộ video từ nguồn về hàng chờ nội dung.
+- Sắp lịch đăng Facebook Reels theo campaign.
+- Tạo hoặc chỉnh caption bằng AI.
+- Tự động phản hồi comment Facebook.
+- Tự động phản hồi inbox Messenger theo ngữ cảnh.
+- Cho operator tiếp quản các cuộc hội thoại cần người thật.
+- Giám sát worker, queue, health, log và cấu hình hệ thống từ một dashboard duy nhất.
 
-Day khong chi la tool dang bai. Day la mot stack van hanh fanpage gom content pipeline, queue/worker, AI pipeline va workspace cho operator.
+Đây không chỉ là tool đăng bài. Đây là một stack vận hành fanpage gồm content pipeline, queue/worker, AI pipeline và workspace cho operator.
 
-## 2. Cong nghe su dung
+## 2. Công nghệ sử dụng
 
 - Backend: FastAPI
 - Frontend: React 19 + Vite
 - Database: PostgreSQL
-- Queue nen: bang `task_queue` trong PostgreSQL
-- Worker: tien trinh Python rieng
+- Queue nền: bảng `task_queue` trong PostgreSQL
+- Worker: tiến trình Python riêng
 - Video ingestion: `yt-dlp` + `ffmpeg`
 - Reverse proxy frontend: Nginx
-- AI provider: Gemini va OpenAI
-- Trien khai mac dinh: Docker Compose
+- AI provider: Gemini và OpenAI
+- Triển khai mặc định: Docker Compose
 
-## 3. Chuc nang chinh
+## 3. Chức năng chính
 
-- Dang nhap, quan ly user va phan quyen `admin` / `operator`.
-- Tao campaign tu TikTok video, TikTok profile, TikTok shortlink, YouTube Shorts don, YouTube Shorts feed.
-- Tu dong bo video nguon ve queue.
-- Tu sap lich dang theo khoang cach phut giua cac video.
-- Cho phep chinh lai moc bat dau campaign sau khi campaign da duoc tao.
-- Khi nguoi dung nhap gio bat dau cu the, he thong se bam dung gio do cho video chua dang cua campaign.
-- Worker tu tai video dau tien theo lich de san sang dang.
-- Worker tu dang video dung han len fanpage Facebook.
-- Sinh caption AI theo hai che do:
-  - Co caption goc: viet lai nhe, giu sat y cu nhung cuon hon.
-  - Khong co caption goc: tu tao caption tu ngu canh video/campaign.
-- Cho phep chinh tay caption AI truc tiep trong dashboard.
-- Tu dong phan hoi comment Facebook bang AI.
-- Tu dong phan hoi inbox Messenger voi conversation memory.
-- Handoff sang operator khi AI khong nen tra loi.
-- Dashboard van hanh cho task queue, worker heartbeat, system events, health checks.
-- Tu don cac worker mat ket noi khoi dashboard theo lich.
-- Quan ly runtime config ngay tren dashboard va sinh lai `backend/runtime.env`.
+- Đăng nhập, quản lý user và phân quyền `admin` / `operator`.
+- Tạo campaign từ TikTok video, TikTok profile, TikTok shortlink, YouTube Shorts đơn, YouTube Shorts feed.
+- Tự đồng bộ video nguồn về queue.
+- Tự sắp lịch đăng theo khoảng cách phút giữa các video.
+- Cho phép chỉnh lại mốc bắt đầu campaign sau khi campaign đã được tạo.
+- Khi người dùng nhập giờ bắt đầu cụ thể, hệ thống sẽ bám đúng giờ đó cho video chưa đăng của campaign.
+- Worker tự tải video đầu tiên theo lịch để sẵn sàng đăng.
+- Worker tự đăng video đúng hạn lên fanpage Facebook.
+- Sinh caption AI theo hai chế độ:
+  - Có caption gốc: viết lại nhẹ, giữ sát ý cũ nhưng cuốn hơn.
+  - Không có caption gốc: tự tạo caption từ ngữ cảnh video/campaign.
+- Cho phép chỉnh tay caption AI trực tiếp trong dashboard.
+- Tự động phản hồi comment Facebook bằng AI.
+- Tự động phản hồi inbox Messenger với conversation memory.
+- Handoff sang operator khi AI không nên trả lời.
+- Dashboard vận hành cho task queue, worker heartbeat, system events, health checks.
+- Tự dọn các worker mất kết nối khỏi dashboard theo lịch.
+- Quản lý runtime config ngay trên dashboard và sinh lại `backend/runtime.env`.
 
-## 4. Nguon noi dung ho tro
+## 4. Nguồn nội dung hỗ trợ
 
 ### TikTok
 
-- Video don:
+- Video đơn:
   - `https://www.tiktok.com/@creator/video/...`
 - Profile:
   - `https://www.tiktok.com/@creator`
@@ -66,7 +66,7 @@ Day khong chi la tool dang bai. Day la mot stack van hanh fanpage gom content pi
 
 ### YouTube Shorts
 
-- Shorts don:
+- Shorts đơn:
   - `https://www.youtube.com/shorts/...`
 - Shorts feed:
   - `https://www.youtube.com/@creator/shorts`
@@ -74,13 +74,13 @@ Day khong chi la tool dang bai. Day la mot stack van hanh fanpage gom content pi
   - `https://www.youtube.com/user/.../shorts`
   - `https://www.youtube.com/c/.../shorts`
 
-### Chua ho tro tot
+### Chưa hỗ trợ tốt
 
 - `https://www.youtube.com/watch?v=...`
 - `https://youtu.be/...`
-- Playlist YouTube thuong khong phai Shorts feed
+- Playlist YouTube thường không phải Shorts feed
 
-## 5. Kien truc he thong
+## 5. Kiến trúc hệ thống
 
 ```text
 Frontend Dashboard (React/Vite + Nginx)
@@ -103,41 +103,41 @@ Frontend Dashboard (React/Vite + Nginx)
             +--> Facebook Graph API
 ```
 
-Nguyen tac van hanh:
+Nguyên tắc vận hành:
 
-- `backend` xu ly API, auth, webhook, serialize du lieu va quan tri he thong.
-- `worker` xu ly job nen: sync campaign, tao caption, tra loi AI, auto-post, scheduler.
-- `db` luu toan bo campaign, video, queue, user, log, conversation, runtime settings.
-- `frontend` la dashboard van hanh production.
+- `backend` xử lý API, auth, webhook, serialize dữ liệu và quản trị hệ thống.
+- `worker` xử lý job nền: sync campaign, tạo caption, trả lời AI, auto-post, scheduler.
+- `db` lưu toàn bộ campaign, video, queue, user, log, conversation, runtime settings.
+- `frontend` là dashboard vận hành production.
 
-## 6. Thanh phan trong Docker Compose
+## 6. Thành phần trong Docker Compose
 
 Theo [docker-compose.yml](./docker-compose.yml):
 
 - `db`
   - PostgreSQL 15
-  - cong host: `5432`
+  - cổng host: `5432`
 - `backend`
   - FastAPI API
-  - cong host: `8000`
+  - cổng host: `8000`
 - `worker`
-  - tien trinh nen rieng
-  - khong public port
+  - tiến trình nền riêng
+  - không public port
 - `frontend`
   - Nginx serve React build
-  - cong host: `5173`
+  - cổng host: `5173`
 - `tunnel`
   - Cloudflare Tunnel
-  - tuy chon
+  - tùy chọn
 
-Dia chi mac dinh:
+Địa chỉ mặc định:
 
 - Dashboard: `http://localhost:5173`
 - API: `http://localhost:8000`
 - Swagger: `http://localhost:8000/docs`
 - Health nhanh: `http://localhost:8000/health`
 
-## 7. Cau truc thu muc
+## 7. Cấu trúc thư mục
 
 ```text
 .
@@ -166,16 +166,16 @@ Dia chi mac dinh:
 `-- README.md
 ```
 
-## 8. Thanh phan backend quan trong
+## 8. Thành phần backend quan trọng
 
 ### API modules
 
 - `backend/app/api/auth.py`
-  - dang nhap, phien, doi mat khau
+  - đăng nhập, phiên, đổi mật khẩu
 - `backend/app/api/users.py`
-  - quan ly user
+  - quản lý user
 - `backend/app/api/campaigns.py`
-  - campaign, video queue, caption, lich dang
+  - campaign, video queue, caption, lịch đăng
 - `backend/app/api/facebook.py`
   - fanpage, import page, validate token, subscribe messages
 - `backend/app/api/webhooks.py`
@@ -188,9 +188,9 @@ Dia chi mac dinh:
 - `backend/app/services/ytdlp_crawler.py`
   - crawl metadata video
 - `backend/app/services/source_resolver.py`
-  - chuan hoa loai nguon dau vao
+  - chuẩn hóa loại nguồn đầu vào
 - `backend/app/services/campaign_jobs.py`
-  - logic sync campaign, lich video
+  - logic sync campaign, lịch video
 - `backend/app/services/ai_generator.py`
   - caption AI, reply AI
 - `backend/app/services/task_queue.py`
@@ -201,43 +201,43 @@ Dia chi mac dinh:
 ### Worker
 
 - `backend/app/worker/run.py`
-  - tien trinh worker chinh
+  - tiến trình worker chính
 - `backend/app/worker/cron.py`
   - scheduler jobs
 - `backend/app/worker/tasks.py`
-  - xu ly task queue
+  - xử lý task queue
 - `backend/app/worker/healthcheck.py`
   - healthcheck cho container worker
 
-## 9. Thanh phan frontend quan trong
+## 9. Thành phần frontend quan trọng
 
 - `frontend/src/App.jsx`
-  - state lon nhat cua dashboard, request API, dieu phoi section
+  - state lớn nhất của dashboard, request API, điều phối section
 - `frontend/src/components/dashboard/CampaignSection.jsx`
-  - quan tri campaign
+  - quản trị campaign
 - `frontend/src/components/dashboard/QueueSection.jsx`
-  - hang cho video va caption
+  - hàng chờ video và caption
 - `frontend/src/components/dashboard/MessagesSection.jsx`
   - workspace inbox AI / operator
 - `frontend/src/components/dashboard/SecuritySection.jsx`
-  - mat khau, user, reset password
+  - mật khẩu, user, reset password
 - `frontend/src/components/dashboard/OperationsSection.jsx`
   - worker, queue, events, health
 
-## 10. Chay nhanh bang Docker
+## 10. Chạy nhanh bằng Docker
 
-Yeu cau:
+Yêu cầu:
 
 - Docker Desktop
 - Docker Compose
 
-Chay stack chinh:
+Chạy stack chính:
 
 ```bash
 docker compose up -d --build db backend worker frontend
 ```
 
-Neu muon chay them Cloudflare Tunnel:
+Nếu muốn chạy thêm Cloudflare Tunnel:
 
 ```bash
 docker compose up -d --build db backend worker frontend tunnel
@@ -249,34 +249,34 @@ Xem log:
 docker compose logs -f backend worker frontend
 ```
 
-Dung stack:
+Dừng stack:
 
 ```bash
 docker compose down
 ```
 
-## 11. Tai khoan mac dinh
+## 11. Tài khoản mặc định
 
-Sau khi khoi dong lan dau:
+Sau khi khởi động lần đầu:
 
 - username: `admin`
 - password: `admin123`
 
-Viec nen lam ngay:
+Việc nên làm ngay:
 
-- dang nhap dashboard
-- doi mat khau admin
-- kiem tra `Bao mat`
-- cau hinh runtime can thiet
+- đăng nhập dashboard
+- đổi mật khẩu admin
+- kiểm tra `Bảo mật`
+- cấu hình runtime cần thiết
 
-## 12. Runtime config va bien moi truong
+## 12. Runtime config và biến môi trường
 
-### File env mau
+### File env mẫu
 
 - [`.env.example`](./.env.example)
 - [`backend/runtime.env.example`](./backend/runtime.env.example)
 
-### Runtime config co the quan ly tren dashboard
+### Runtime config có thể quản lý trên dashboard
 
 - `BASE_URL`
 - `FB_VERIFY_TOKEN`
@@ -292,11 +292,11 @@ Viec nen lam ngay:
 - `TELEGRAM_CHAT_ID`
 - `ADMIN_PASSWORD`
 
-Dashboard luu gia tri vao database va sinh lai file:
+Dashboard lưu giá trị vào database và sinh lại file:
 
 - [`backend/runtime.env`](./backend/runtime.env)
 
-### Bien nen giu o tang trien khai
+### Biến nên giữ ở tầng triển khai
 
 - `DATABASE_URL`
 - `JWT_SECRET`
@@ -314,185 +314,185 @@ Dashboard luu gia tri vao database va sinh lai file:
 - `HTTP_RETRY_BASE_SECONDS`
 - `HTTP_RETRY_MAX_SECONDS`
 
-## 13. Thiet lap lan dau sau khi chay stack
+## 13. Thiết lập lần đầu sau khi chạy stack
 
-### Buoc 1: mo dashboard
+### Bước 1: mở dashboard
 
 - `http://localhost:5173`
 
-### Buoc 2: dang nhap admin
+### Bước 2: đăng nhập admin
 
-- dung tai khoan mac dinh
+- dùng tài khoản mặc định
 
-### Buoc 3: doi mat khau admin
+### Bước 3: đổi mật khẩu admin
 
-- vao khu `Bao mat`
-- doi ngay mat khau mac dinh
+- vào khu `Bảo mật`
+- đổi ngay mật khẩu mặc định
 
-### Buoc 4: cau hinh runtime
+### Bước 4: cấu hình runtime
 
-Toi thieu nen dien:
+Tối thiểu nên điền:
 
 - `BASE_URL`
 - `FB_VERIFY_TOKEN`
 - `FB_APP_SECRET`
-- it nhat mot AI key: `GEMINI_API_KEY` hoac `OPENAI_API_KEY`
+- ít nhất một AI key: `GEMINI_API_KEY` hoặc `OPENAI_API_KEY`
 
-### Buoc 5: ket noi fanpage
+### Bước 5: kết nối fanpage
 
-He thong ho tro hai cach:
+Hệ thống hỗ trợ hai cách:
 
-- import nhieu page bang `User Access Token`
-- them thu cong tung page bang `Page Access Token`
+- import nhiều page bằng `User Access Token`
+- thêm thủ công từng page bằng `Page Access Token`
 
-### Buoc 6: validate fanpage
+### Bước 6: validate fanpage
 
-Sau khi them page, nen:
+Sau khi thêm page, nên:
 
-- kiem tra token page
-- subscribe page vao app
-- kiem tra webhook nhan `feed` va `messages`
+- kiểm tra token page
+- subscribe page vào app
+- kiểm tra webhook nhận `feed` và `messages`
 
-### Buoc 7: tao campaign dau tien
+### Bước 7: tạo campaign đầu tiên
 
-- dan link nguon
-- chon fanpage dich
-- chon khoang cach dang
-- nhap gio bat dau neu muon co dinh
-- tao campaign
+- dán link nguồn
+- chọn fanpage đích
+- chọn khoảng cách đăng
+- nhập giờ bắt đầu nếu muốn cố định
+- tạo campaign
 - sync campaign
 
-## 14. Luong tao campaign va dang video
+## 14. Luồng tạo campaign và đăng video
 
-Luong co ban:
+Luồng cơ bản:
 
-1. Nguoi dung tao campaign voi URL nguon.
-2. Backend chuan hoa loai nguon.
-3. Worker sync campaign va lay metadata video tu `yt-dlp`.
-4. Moi video duoc luu thanh ban ghi `Video`.
-5. He thong xep `publish_time` theo `schedule_interval`.
-6. Neu campaign co `schedule_start_at`, video chua dang se bam dung moc do.
-7. Worker chuan bi video dau tien va doi sang `ready`.
-8. Den gio, worker tu dang video len Facebook.
-9. Sau khi dang xong, worker chuan bi video tiep theo.
+1. Người dùng tạo campaign với URL nguồn.
+2. Backend chuẩn hóa loại nguồn.
+3. Worker sync campaign và lấy metadata video từ `yt-dlp`.
+4. Mỗi video được lưu thành bản ghi `Video`.
+5. Hệ thống xếp `publish_time` theo `schedule_interval`.
+6. Nếu campaign có `schedule_start_at`, video chưa đăng sẽ bám đúng mốc đó.
+7. Worker chuẩn bị video đầu tiên và đổi sang `ready`.
+8. Đến giờ, worker tự đăng video lên Facebook.
+9. Sau khi đăng xong, worker chuẩn bị video tiếp theo.
 
-Diem quan trong hien tai:
+Điểm quan trọng hiện tại:
 
-- Khi sua hoac luu lai lich bat dau campaign, he thong uu tien dung gio nguoi dung nhap.
-- Worker co the tu chuan bi video `pending` dau tien khi den lich.
-- Worker stale tu duoc don khoi dashboard ma khong can bam nut thu cong.
+- Khi sửa hoặc lưu lại lịch bắt đầu campaign, hệ thống ưu tiên đúng giờ người dùng nhập.
+- Worker có thể tự chuẩn bị video `pending` đầu tiên khi đến lịch.
+- Worker stale tự được dọn khỏi dashboard mà không cần bấm nút thủ công.
 
-## 15. Quan ly lich dang
+## 15. Quản lý lịch đăng
 
 Trong dashboard:
 
-- co the chinh `Ngay gio bat dau moi`
-- co the khoi phuc ve moc hien co
-- co the bo trong de quay ve mode khong co dinh gio bat dau
+- có thể chỉnh `Ngày giờ bắt đầu mới`
+- có thể khôi phục về mốc hiện có
+- có thể bỏ trống để quay về mode không cố định giờ bắt đầu
 
-Hanh vi hien tai:
+Hành vi hiện tại:
 
-- Neu co `schedule_start_at`, campaign se bam moc do.
-- Neu khong co `schedule_start_at`, he thong xep theo hang cho fanpage.
-- Chinh lich chi ap dung cho cac video chua dang cua campaign.
+- Nếu có `schedule_start_at`, campaign sẽ bám mốc đó.
+- Nếu không có `schedule_start_at`, hệ thống xếp theo hàng chờ fanpage.
+- Chỉnh lịch chỉ áp dụng cho các video chưa đăng của campaign.
 
 ## 16. Caption AI
 
-Caption AI hien co hai che do chinh:
+Caption AI hiện có hai chế độ chính:
 
-### Video co caption goc
+### Video có caption gốc
 
-- AI giu sat y caption goc
-- chi rewrite nhe cho muot hon, co hook hon, hut xem hon
-- khong doi sang chu de khac
-- han che bia them fact khong co trong caption nguon
+- AI giữ sát ý caption gốc
+- chỉ rewrite nhẹ cho mượt hơn, có hook hơn, hút xem hơn
+- không đổi sang chủ đề khác
+- hạn chế bịa thêm fact không có trong caption nguồn
 
-### Video khong co caption goc
+### Video không có caption gốc
 
-- AI tu tao caption tu ngu canh video
-- dung thong tin nhu:
-  - ten campaign
+- AI tự tạo caption từ ngữ cảnh video
+- dùng thông tin như:
+  - tên campaign
   - platform
   - source kind
-  - fanpage dich
+  - fanpage đích
   - original id
-- muc tieu la tao caption hop kieu video ngan, tu nhien, co hook va CTA
+- mục tiêu là tạo caption hợp kiểu video ngắn, tự nhiên, có hook và CTA
 
-### Caption AI trong he thong
+### Caption AI trong hệ thống
 
-- worker co the tu generate truoc khi dang
-- nguoi dung co the bam generate lai tung video
-- nguoi dung co the sua tay caption AI trong queue
+- worker có thể tự generate trước khi đăng
+- người dùng có thể bấm generate lại từng video
+- người dùng có thể sửa tay caption AI trong queue
 
-## 17. Comment AI va Inbox AI
+## 17. Comment AI và Inbox AI
 
 ### Comment AI
 
-Luong:
+Luồng:
 
-1. Facebook gui webhook comment.
-2. Backend xac thuc request.
-3. He thong luu `InteractionLog`.
-4. Neu page bat auto-reply comment, backend day task vao queue.
-5. Worker goi AI va reply qua Facebook Graph API.
+1. Facebook gửi webhook comment.
+2. Backend xác thực request.
+3. Hệ thống lưu `InteractionLog`.
+4. Nếu page bật auto-reply comment, backend đẩy task vào queue.
+5. Worker gọi AI và reply qua Facebook Graph API.
 
 ### Inbox AI
 
-Luong:
+Luồng:
 
-1. Facebook gui webhook message.
-2. Backend luu `InboxMessageLog`.
-3. He thong dung `InboxConversation`.
-4. Neu hoi thoai duoc phep AI xu ly, backend tao task reply.
-5. Worker tao phan hoi co ngu canh tu:
+1. Facebook gửi webhook message.
+2. Backend lưu `InboxMessageLog`.
+3. Hệ thống dựng `InboxConversation`.
+4. Nếu hội thoại được phép AI xử lý, backend tạo task reply.
+5. Worker tạo phản hồi có ngữ cảnh từ:
    - conversation summary
    - recent turns
    - customer facts
    - page prompt / knowledge
-6. Neu AI yeu cau handoff, conversation chuyen sang `operator_active`.
+6. Nếu AI yêu cầu handoff, conversation chuyển sang `operator_active`.
 
 ## 18. Workspace cho operator
 
-Phan `Tin nhan AI` tren dashboard ho tro:
+Phần `Tin nhắn AI` trên dashboard hỗ trợ:
 
-- xem danh sach conversation
-- loc theo trang thai
+- xem danh sách conversation
+- lọc theo trạng thái
 - xem timeline chat
 - xem summary / intent / facts
-- gan nguoi xu ly
-- ghi chu noi bo
-- tra loi thu cong ngay tren UI
-- chuyen conversation sang `resolved`
+- gán người xử lý
+- ghi chú nội bộ
+- trả lời thủ công ngay trên UI
+- chuyển conversation sang `resolved`
 
-Trang thai chinh:
+Trạng thái chính:
 
 - `ai_active`
 - `operator_active`
 - `resolved`
 
-## 19. Fanpage va token
+## 19. Fanpage và token
 
-He thong hien ho tro mo hinh:
+Hệ thống hiện hỗ trợ mô hình:
 
-- mot app Meta
-- nhieu fanpage
-- moi fanpage co cau hinh automation rieng
+- một app Meta
+- nhiều fanpage
+- mỗi fanpage có cấu hình automation riêng
 
-Loai token:
+Loại token:
 
 - `User Access Token`
-  - dung de discover/import nhieu page
-  - refresh page token hang loat
+  - dùng để discover/import nhiều page
+  - refresh page token hàng loạt
 - `Page Access Token`
-  - dung de post video, comment, inbox, subscribe page
+  - dùng để post video, comment, inbox, subscribe page
 
-## 20. Worker, task queue va health
+## 20. Worker, task queue và health
 
 ### Queue
 
-Task nen duoc luu trong bang `task_queue`.
+Task nền được lưu trong bảng `task_queue`.
 
-Trang thai:
+Trạng thái:
 
 - `queued`
 - `processing`
@@ -501,9 +501,9 @@ Trang thai:
 
 ### Worker heartbeat
 
-Worker cap nhat heartbeat dinh ky vao bang `worker_heartbeats`.
+Worker cập nhật heartbeat định kỳ vào bảng `worker_heartbeats`.
 
-Thong tin luu:
+Thông tin lưu:
 
 - `worker_name`
 - `app_role`
@@ -512,15 +512,15 @@ Thong tin luu:
 - `current_task_type`
 - `last_seen_at`
 
-### Tu don worker mat ket noi
+### Tự dọn worker mất kết nối
 
-Hien tai:
+Hiện tại:
 
-- API van co nut don tay: `POST /system/workers/cleanup`
-- ngoai ra scheduler da tu don stale worker theo chu ky
-- worker stale se tu bien mat khoi dashboard sau khi qua han heartbeat
+- API vẫn có nút dọn tay: `POST /system/workers/cleanup`
+- ngoài ra scheduler đã tự dọn stale worker theo chu kỳ
+- worker stale sẽ tự biến mất khỏi dashboard sau khi quá hạn heartbeat
 
-## 21. API chinh
+## 21. API chính
 
 ### Auth
 
@@ -564,7 +564,7 @@ Hien tai:
 - `POST /campaigns/videos/{video_id}/generate-caption`
 - `POST /campaigns/videos/{video_id}/retry`
 
-### Webhooks va inbox workspace
+### Webhooks và inbox workspace
 
 - `GET /webhooks/fb`
 - `POST /webhooks/fb`
@@ -589,11 +589,11 @@ Hien tai:
 - `GET /system/workers`
 - `POST /system/workers/cleanup`
 
-Chi tiet schema xem tai:
+Chi tiết schema xem tại:
 
 - `http://localhost:8000/docs`
 
-## 22. Chay local khong dung Docker
+## 22. Chạy local không dùng Docker
 
 ### Backend
 
@@ -622,7 +622,7 @@ npm ci
 npm run dev
 ```
 
-## 23. Build va kiem tra chat luong
+## 23. Build và kiểm tra chất lượng
 
 ### Backend
 
@@ -647,90 +647,90 @@ docker compose config
 docker compose up -d --build
 ```
 
-## 24. Van hanh production nho voi Docker
+## 24. Vận hành production nhỏ với Docker
 
-Theo file compose hien tai:
+Theo file compose hiện tại:
 
-- service deu co `restart: unless-stopped`
-- co `healthcheck`
-- co `init: true`
-- co log rotation
-- frontend chay Nginx production thay vi Vite dev server
-- worker chay lenh:
+- service đều có `restart: unless-stopped`
+- có `healthcheck`
+- có `init: true`
+- có log rotation
+- frontend chạy Nginx production thay vì Vite dev server
+- worker chạy lệnh:
 
 ```bash
 alembic upgrade head && python -m app.worker.run
 ```
 
-Khuyen nghi khi deploy:
+Khuyến nghị khi deploy:
 
-- dat `JWT_SECRET` that
-- dat `TOKEN_ENCRYPTION_SECRET` that
-- dung domain HTTPS that cho `BASE_URL`
-- theo doi `/system/health`
-- theo doi log `backend` va `worker`
+- đặt `JWT_SECRET` thật
+- đặt `TOKEN_ENCRYPTION_SECRET` thật
+- dùng domain HTTPS thật cho `BASE_URL`
+- theo dõi `/system/health`
+- theo dõi log `backend` và `worker`
 
 ## 25. FAQ
 
-### Clone moi nhung chua co `backend/runtime.env` thi sao?
+### Clone mới nhưng chưa có `backend/runtime.env` thì sao?
 
-Compose da fallback sang `backend/runtime.env.example`, nen stack van co the len duoc.
+Compose đã fallback sang `backend/runtime.env.example`, nên stack vẫn có thể lên được.
 
-### Co bat buoc dung Cloudflare Tunnel khong?
+### Có bắt buộc dùng Cloudflare Tunnel không?
 
-Khong. Neu ban co san domain HTTPS va reverse proxy thi chi can `BASE_URL` public dung la duoc.
+Không. Nếu bạn có sẵn domain HTTPS và reverse proxy thì chỉ cần `BASE_URL` public đúng là được.
 
-### Vi sao video khong dang dung gio?
+### Vì sao video không đăng đúng giờ?
 
-Cac nguyen nhan thuong gap:
+Các nguyên nhân thường gặp:
 
-- worker chua chay
-- video dau tien con `pending` nhung worker cu chua chuan bi
-- fanpage/token loi
-- truoc day campaign bi lech lich cu, can luu lai moc bat dau sau khi update code
+- worker chưa chạy
+- video đầu tiên còn `pending` nhưng worker cũ chưa chuẩn bị
+- fanpage/token lỗi
+- trước đây campaign bị lệch lịch cũ, cần lưu lại mốc bắt đầu sau khi update code
 
-### Vi sao comment hoac inbox khong vao he thong?
+### Vì sao comment hoặc inbox không vào hệ thống?
 
-- `BASE_URL` chua public dung
+- `BASE_URL` chưa public đúng
 - `FB_VERIFY_TOKEN` sai
-- `FB_APP_SECRET` sai hoac thieu
-- page chua subscribe vao app
-- token page het han hoac sai loai
+- `FB_APP_SECRET` sai hoặc thiếu
+- page chưa subscribe vào app
+- token page hết hạn hoặc sai loại
 
-### Vi sao AI khong tra loi inbox?
+### Vì sao AI không trả lời inbox?
 
-- page chua bat message automation
-- conversation dang `operator_active`
-- worker khong online
-- chua cau hinh AI key
+- page chưa bật message automation
+- conversation đang `operator_active`
+- worker không online
+- chưa cấu hình AI key
 
-### Vi sao generate caption truoc day bao loi khi video khong co caption goc?
+### Vì sao generate caption trước đây báo lỗi khi video không có caption gốc?
 
-Hien tai hanh vi nay da duoc mo lai. He thong se dung ngu canh video de tao caption moi thay vi chan.
+Hiện tại hành vi này đã được mở lại. Hệ thống sẽ dùng ngữ cảnh video để tạo caption mới thay vì chặn.
 
-## 26. Goi y quy trinh van hanh thuc te
+## 26. Gợi ý quy trình vận hành thực tế
 
-Mot flow gon de dung hang ngay:
+Một flow gọn để dùng hằng ngày:
 
-1. Kiem tra `Tong quan` va `Van hanh`.
-2. Kiem tra worker online va queue khong bi fail nhieu.
-3. Sync campaign moi hoac dong bo lai campaign cu.
-4. Ra `Lich dang`, chinh caption AI neu can.
-5. Theo doi `Tin nhan AI` de xu ly hoi thoai can operator.
-6. Kiem tra `Bao mat` va user neu co nhan su moi.
+1. Kiểm tra `Tổng quan` và `Vận hành`.
+2. Kiểm tra worker online và queue không bị fail nhiều.
+3. Sync campaign mới hoặc đồng bộ lại campaign cũ.
+4. Ra `Lịch đăng`, chỉnh caption AI nếu cần.
+5. Theo dõi `Tin nhắn AI` để xử lý hội thoại cần operator.
+6. Kiểm tra `Bảo mật` và user nếu có nhân sự mới.
 
-## 27. Ghi chu cuoi
+## 27. Ghi chú cuối
 
-Repo nay dang di theo huong "tool van hanh thuc chien", nen nhieu hanh vi duoc toi uu truc tiep cho dashboard va workflow noi bo:
+Repo này đang đi theo hướng "tool vận hành thực chiến", nên nhiều hành vi được tối ưu trực tiếp cho dashboard và workflow nội bộ:
 
-- uu tien van hanh bang UI
-- worker tach rieng khoi API
-- runtime config co the doi ngay trong dashboard
-- queue va worker co quan sat trang thai ro rang
+- ưu tiên vận hành bằng UI
+- worker tách riêng khỏi API
+- runtime config có thể đổi ngay trong dashboard
+- queue và worker có quan sát trạng thái rõ ràng
 
-Neu can mo rong tiep, cac huong hop ly nhat la:
+Nếu cần mở rộng tiếp, các hướng hợp lý nhất là:
 
-- them nhieu style caption theo loai noi dung
-- them batch actions cho queue
-- them analytics theo campaign/page
-- them retry policy tinh hon cho Graph API va AI provider
+- thêm nhiều style caption theo loại nội dung
+- thêm batch actions cho queue
+- thêm analytics theo campaign/page
+- thêm retry policy tinh hơn cho Graph API và AI provider
