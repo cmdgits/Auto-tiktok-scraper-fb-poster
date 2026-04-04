@@ -4,6 +4,7 @@ from pathlib import Path
 from app.core.time import utc_now
 from app.models.models import FacebookPage, SystemEvent, TaskQueue, WorkerHeartbeat
 from app.services.runtime_settings import RUNTIME_ENV_FILE
+from app.services.observability import cleanup_stale_worker_heartbeats
 from app.services.task_queue import (
     TASK_TYPE_CAMPAIGN_SYNC,
     claim_next_task,
@@ -120,6 +121,33 @@ def test_admin_can_cleanup_stale_workers(client, auth_headers, db_session):
     worker_names = [worker["worker_name"] for worker in workers_response.json()["workers"]]
     assert "worker-online@test" in worker_names
     assert "worker-stale@test" not in worker_names
+
+
+def test_cleanup_stale_worker_heartbeats_deletes_only_stale_workers(db_session):
+    online_worker = WorkerHeartbeat(
+        worker_name="worker-online-auto@test",
+        app_role="worker",
+        hostname="localhost",
+        status="idle",
+        last_seen_at=utc_now(),
+    )
+    stale_worker = WorkerHeartbeat(
+        worker_name="worker-stale-auto@test",
+        app_role="worker",
+        hostname="localhost",
+        status="idle",
+        last_seen_at=utc_now() - timedelta(minutes=10),
+    )
+    db_session.add_all([online_worker, stale_worker])
+    db_session.commit()
+
+    deleted_count, deleted_workers = cleanup_stale_worker_heartbeats(db=db_session)
+
+    assert deleted_count == 1
+    assert deleted_workers == ["worker-stale-auto@test"]
+    remaining_workers = [worker.worker_name for worker in db_session.query(WorkerHeartbeat).all()]
+    assert "worker-online-auto@test" in remaining_workers
+    assert "worker-stale-auto@test" not in remaining_workers
 
 
 def test_admin_can_update_runtime_config_and_webhook_uses_new_values(client, auth_headers):

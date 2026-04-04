@@ -24,7 +24,7 @@ from app.models.models import (
     VideoStatus,
     WorkerHeartbeat,
 )
-from app.services.observability import record_event
+from app.services.observability import cleanup_stale_worker_heartbeats, record_event
 from app.services.health_checks import (
     build_overall_health_status,
     build_queue_health,
@@ -415,26 +415,12 @@ def cleanup_stale_workers(
     current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    stale_cutoff = utc_now() - timedelta(seconds=settings.WORKER_STALE_SECONDS)
-    stale_workers = db.query(WorkerHeartbeat).filter(WorkerHeartbeat.last_seen_at < stale_cutoff).all()
-    stale_names = [worker.worker_name for worker in stale_workers]
-
-    if not stale_workers:
-        return {"deleted_count": 0, "deleted_workers": [], "message": "Không có worker mất kết nối nào để dọn."}
-
-    deleted_count = len(stale_workers)
-    for worker in stale_workers:
-        db.delete(worker)
-    db.commit()
-
-    record_event(
-        "worker",
-        "info",
-        "Đã dọn các worker mất kết nối khỏi bảng heartbeat.",
+    deleted_count, stale_names = cleanup_stale_worker_heartbeats(
         db=db,
         actor_user_id=str(current_user.id),
-        details={"deleted_count": deleted_count, "deleted_workers": stale_names},
     )
+    if not deleted_count:
+        return {"deleted_count": 0, "deleted_workers": [], "message": "Không có worker mất kết nối nào để dọn."}
 
     return {
         "deleted_count": deleted_count,

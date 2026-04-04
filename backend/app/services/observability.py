@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import logging
 import socket
@@ -134,6 +134,44 @@ def update_worker_heartbeat(
         heartbeat.details = _normalize_details(details) or None
         heartbeat.last_seen_at = utc_now()
         session.commit()
+    finally:
+        if own_session and session is not None:
+            session.close()
+
+
+def cleanup_stale_worker_heartbeats(
+    *,
+    stale_seconds: int | None = None,
+    db: Session | None = None,
+    actor_user_id: str | None = None,
+) -> tuple[int, list[str]]:
+    own_session = False
+    session = db
+    if session is None:
+        session = SessionLocal()
+        own_session = True
+
+    try:
+        cutoff = utc_now() - timedelta(seconds=stale_seconds or settings.WORKER_STALE_SECONDS)
+        stale_workers = session.query(WorkerHeartbeat).filter(WorkerHeartbeat.last_seen_at < cutoff).all()
+        stale_names = [worker.worker_name for worker in stale_workers]
+        if not stale_workers:
+            return 0, []
+
+        deleted_count = len(stale_workers)
+        for worker in stale_workers:
+            session.delete(worker)
+        session.commit()
+
+        record_event(
+            "worker",
+            "info",
+            "Đã dọn các worker mất kết nối khỏi bảng heartbeat.",
+            db=session,
+            actor_user_id=actor_user_id,
+            details={"deleted_count": deleted_count, "deleted_workers": stale_names},
+        )
+        return deleted_count, stale_names
     finally:
         if own_session and session is not None:
             session.close()

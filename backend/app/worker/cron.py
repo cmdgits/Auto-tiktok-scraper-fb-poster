@@ -13,7 +13,7 @@ from app.services.ai_generator import generate_caption
 from app.services.campaign_jobs import build_download_prefix
 from app.services.fb_graph import create_post_comment, upload_video_to_facebook
 from app.services.google_sheet_products import build_product_comment_messages, select_random_products_from_google_sheet
-from app.services.observability import record_event, update_worker_heartbeat
+from app.services.observability import cleanup_stale_worker_heartbeats, record_event, update_worker_heartbeat
 from app.services.security import decrypt_secret
 from app.services.ytdlp_crawler import download_video
 from app.worker.tasks import process_task_queue
@@ -324,6 +324,10 @@ def heartbeat_job():
     update_worker_heartbeat(WORKER_NAME, app_role=settings.APP_ROLE, status="idle")
 
 
+def cleanup_stale_workers_job():
+    cleanup_stale_worker_heartbeats()
+
+
 def start_scheduler():
     if not scheduler.get_job("auto_post_job"):
         scheduler.add_job(
@@ -351,6 +355,16 @@ def start_scheduler():
             "interval",
             id="heartbeat_job",
             seconds=max(10, settings.TASK_QUEUE_POLL_SECONDS),
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+    if not scheduler.get_job("cleanup_stale_workers_job"):
+        scheduler.add_job(
+            cleanup_stale_workers_job,
+            "interval",
+            id="cleanup_stale_workers_job",
+            seconds=max(15, settings.WORKER_STALE_SECONDS),
             replace_existing=True,
             max_instances=1,
             coalesce=True,

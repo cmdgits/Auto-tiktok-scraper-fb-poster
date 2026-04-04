@@ -17,6 +17,7 @@ from app.services.security import encrypt_secret
 from app.services.task_queue import TASK_TYPE_CAMPAIGN_SYNC, TASK_TYPE_COMMENT_REPLY, claim_next_task, enqueue_task
 from app.services.ytdlp_crawler import NormalizedMediaEntry
 from app.worker import healthcheck as worker_healthcheck
+from app.worker.cron import cleanup_stale_workers_job
 from app.worker.tasks import process_task_queue
 
 
@@ -67,6 +68,31 @@ def test_worker_healthcheck_reflects_fresh_and_stale_heartbeat(db_session, monke
     worker.last_seen_at = utc_now() - timedelta(minutes=10)
     db_session.commit()
     assert worker_healthcheck.main() == 1
+
+
+def test_cleanup_stale_workers_job_removes_disconnected_workers(db_session):
+    online_worker = WorkerHeartbeat(
+        worker_name="worker-online-cron@test",
+        app_role="worker",
+        hostname="localhost",
+        status="idle",
+        last_seen_at=utc_now(),
+    )
+    stale_worker = WorkerHeartbeat(
+        worker_name="worker-stale-cron@test",
+        app_role="worker",
+        hostname="localhost",
+        status="idle",
+        last_seen_at=utc_now() - timedelta(minutes=10),
+    )
+    db_session.add_all([online_worker, stale_worker])
+    db_session.commit()
+
+    cleanup_stale_workers_job()
+
+    remaining_workers = [worker.worker_name for worker in db_session.query(WorkerHeartbeat).all()]
+    assert "worker-online-cron@test" in remaining_workers
+    assert "worker-stale-cron@test" not in remaining_workers
 
 
 def test_system_health_reports_dependency_breakdown(client, auth_headers, monkeypatch):
