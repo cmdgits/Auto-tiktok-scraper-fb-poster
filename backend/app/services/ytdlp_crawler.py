@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import tempfile
 import uuid
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 import yt_dlp
 
@@ -63,6 +63,33 @@ def _is_youtube_short_url(url: str | None) -> bool:
     return parsed.netloc.lower() in {"youtube.com", "www.youtube.com", "m.youtube.com"} and parsed.path.lower().startswith("/shorts/")
 
 
+def _normalize_youtube_entry_url(url: str | None, fallback_id: str | None = None, source_kind_hint: str | None = None) -> str | None:
+    if isinstance(url, str) and url.startswith("http"):
+        parsed = urlsplit(url)
+        host = parsed.netloc.lower()
+        path = parsed.path or "/"
+        if host in {"youtu.be", "www.youtu.be"}:
+            video_id = path.strip("/")
+            if video_id:
+                return f"https://www.youtube.com/watch?v={video_id}"
+        if host in {"youtube.com", "www.youtube.com", "m.youtube.com"}:
+            if path.lower().startswith("/shorts/"):
+                short_id = path.strip("/").split("/", 1)[1]
+                return f"https://www.youtube.com/shorts/{short_id}"
+            if path.lower() == "/watch":
+                video_id = dict(parse_qsl(parsed.query, keep_blank_values=False)).get("v")
+                if video_id:
+                    return f"https://www.youtube.com/watch?v={video_id}"
+            return url
+
+    if fallback_id:
+        if source_kind_hint in {"youtube_short", "youtube_shorts_feed"}:
+            return f"https://www.youtube.com/shorts/{fallback_id}"
+        return f"https://www.youtube.com/watch?v={fallback_id}"
+
+    return None
+
+
 def _is_tiktok_video_url(url: str | None) -> bool:
     if not url:
         return False
@@ -72,24 +99,28 @@ def _is_tiktok_video_url(url: str | None) -> bool:
 
 
 def _build_entry_url(entry: dict, source_platform: str, source_kind_hint: str) -> str | None:
+    entry_id = entry.get("id")
+
     original_url = entry.get("original_url")
     if isinstance(original_url, str) and original_url.startswith("http"):
-        if source_platform != "youtube" or _is_youtube_short_url(original_url):
-            return original_url
+        if source_platform == "youtube":
+            return _normalize_youtube_entry_url(original_url, entry_id, source_kind_hint)
+        return original_url
 
     webpage_url = entry.get("webpage_url")
     if isinstance(webpage_url, str) and webpage_url.startswith("http"):
-        if source_platform != "youtube" or _is_youtube_short_url(webpage_url):
-            return webpage_url
+        if source_platform == "youtube":
+            return _normalize_youtube_entry_url(webpage_url, entry_id, source_kind_hint)
         return webpage_url
-
-    entry_id = entry.get("id")
-    if source_platform == "youtube" and source_kind_hint in {"youtube_short", "youtube_shorts_feed"} and entry_id:
-        return f"https://www.youtube.com/shorts/{entry_id}"
 
     direct_url = entry.get("url")
     if isinstance(direct_url, str) and direct_url.startswith("http"):
+        if source_platform == "youtube":
+            return _normalize_youtube_entry_url(direct_url, entry_id, source_kind_hint)
         return direct_url
+
+    if source_platform == "youtube":
+        return _normalize_youtube_entry_url(None, entry_id, source_kind_hint)
 
     if not entry_id:
         return None
@@ -113,9 +144,7 @@ def _normalize_entry(entry: dict, source_platform: str, source_kind_hint: str) -
         return None
 
     if source_platform == "youtube":
-        if not _is_youtube_short_url(entry_url):
-            return None
-        source_kind = "youtube_short"
+        source_kind = "youtube_short" if _is_youtube_short_url(entry_url) else "youtube_video"
     elif source_platform == "tiktok":
         if _is_tiktok_video_url(entry_url):
             source_kind = "tiktok_video"

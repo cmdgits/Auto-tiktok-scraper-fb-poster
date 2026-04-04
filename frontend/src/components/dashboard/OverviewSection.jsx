@@ -192,7 +192,7 @@ export default function OverviewSection({
 
       <Panel
         eyebrow="Nguồn nội dung"
-        title="Hiệu quả TikTok và YouTube Shorts"
+        title="Hiệu quả TikTok và YouTube"
         subtitle="Khối nội dung chính chiếm trọn hàng ngang để so sánh hai nguồn rõ ràng hơn và tận dụng tốt màn hình lớn."
         action={(
           <select

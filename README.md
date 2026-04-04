@@ -1,6 +1,6 @@
 # Social Tool
 
-Hệ thống quản trị fanpage Facebook theo mô hình "một dashboard để vận hành toàn bộ": lấy video từ TikTok và YouTube Shorts, tạo chiến dịch, xếp lịch đăng Reels, sinh caption AI, tự động phản hồi comment và inbox, theo dõi worker/task queue, và quản lý cấu hình runtime ngay trên giao diện.
+Hệ thống quản trị fanpage Facebook theo mô hình "một dashboard để vận hành toàn bộ": lấy video từ TikTok và YouTube, tạo chiến dịch, xếp lịch đăng Reels, sinh caption AI, tự động phản hồi comment và inbox, theo dõi worker/task queue, và quản lý cấu hình runtime ngay trên giao diện.
 
 README này mô tả trạng thái hiện tại của repo.
 
@@ -8,7 +8,7 @@ README này mô tả trạng thái hiện tại của repo.
 
 Social Tool được xây để giải quyết một luồng vận hành fanpage tương đối đầy đủ:
 
-- Tạo campaign từ link TikTok hoặc YouTube Shorts.
+- Tạo campaign từ link TikTok hoặc nhiều dạng nguồn YouTube.
 - Đồng bộ video từ nguồn về hàng chờ nội dung.
 - Sắp lịch đăng Facebook Reels theo campaign.
 - Tạo hoặc chỉnh caption bằng AI.
@@ -34,7 +34,7 @@ Social Tool được xây để giải quyết một luồng vận hành fanpage
 ## 3. Chức năng chính
 
 - Đăng nhập, quản lý user và phân quyền `admin` / `operator`.
-- Tạo campaign từ TikTok video, TikTok profile, TikTok shortlink, YouTube Shorts đơn, YouTube Shorts feed.
+- Tạo campaign từ TikTok video, TikTok profile, TikTok shortlink, YouTube video đơn, YouTube Shorts, playlist và feed/kênh YouTube.
 - Tự đồng bộ video nguồn về queue.
 - Tự sắp lịch đăng theo khoảng cách phút giữa các video.
 - Cho phép chỉnh lại mốc bắt đầu campaign sau khi campaign đã được tạo.
@@ -64,21 +64,21 @@ Social Tool được xây để giải quyết một luồng vận hành fanpage
   - `https://vt.tiktok.com/...`
   - `https://vm.tiktok.com/...`
 
-### YouTube Shorts
+### YouTube
 
+- Video đơn:
+  - `https://www.youtube.com/watch?v=...`
+  - `https://youtu.be/...`
 - Shorts đơn:
   - `https://www.youtube.com/shorts/...`
-- Shorts feed:
+- Playlist:
+  - `https://www.youtube.com/playlist?list=...`
+- Kênh/feed:
+  - `https://www.youtube.com/@creator`
+  - `https://www.youtube.com/@creator/videos`
   - `https://www.youtube.com/@creator/shorts`
-  - `https://www.youtube.com/channel/.../shorts`
-  - `https://www.youtube.com/user/.../shorts`
-  - `https://www.youtube.com/c/.../shorts`
-
-### Chưa hỗ trợ tốt
-
-- `https://www.youtube.com/watch?v=...`
-- `https://youtu.be/...`
-- Playlist YouTube thường không phải Shorts feed
+  - `https://www.youtube.com/channel/.../videos`
+  - `https://www.youtube.com/user/.../videos`
 
 ## 5. Kiến trúc hệ thống
 

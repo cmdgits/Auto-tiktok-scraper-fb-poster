@@ -136,7 +136,10 @@ CAPTION_SOURCE_KIND_CONTEXT_LABELS = {
     "tiktok_profile": "chuỗi clip TikTok",
     "tiktok_shortlink": "clip TikTok ngắn",
     "tiktok_legacy": "video ngắn",
+    "youtube_video": "video YouTube",
     "youtube_short": "video shorts",
+    "youtube_channel": "chuỗi video YouTube",
+    "youtube_playlist": "playlist video YouTube",
     "youtube_shorts_feed": "chuỗi video shorts",
 }
 VIETNAMESE_DIACRITIC_RE = re.compile(r"[À-ỹ]")
@@ -238,7 +241,7 @@ def _build_caption_context_seed_text(video_context: dict[str, Any] | None) -> st
     if source_platform == "tiktok":
         seeds.append("video ngắn giải trí")
     elif source_platform == "youtube":
-        seeds.append("video shorts")
+        seeds.append("video YouTube")
 
     return _normalize_text(" ".join(seeds))
 
@@ -264,7 +267,7 @@ def _build_caption_context_reference(video_context: dict[str, Any] | None) -> st
     if source_platform == "tiktok":
         return "kiểu clip ngắn này"
     if source_platform == "youtube":
-        return "kiểu video shorts này"
+        return "kiểu video YouTube này"
     return "kiểu nội dung này"
 
 

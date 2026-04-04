@@ -84,7 +84,7 @@ def ensure_campaign_source_details(campaign: Campaign):
 
 def build_download_prefix(source_platform: str | None) -> str:
     if source_platform == "youtube":
-        return "youtube_short"
+        return "youtube"
     if source_platform == "tiktok":
         return "tiktok"
     return "video"

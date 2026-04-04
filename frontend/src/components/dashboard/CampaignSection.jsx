@@ -129,7 +129,7 @@ export default function CampaignSection({
           </label>
           <label className="space-y-2 xl:col-span-12">
             <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Nguồn nội dung</span>
-            <input required type="url" className={FIELD_CLASS} placeholder="https://www.tiktok.com/@... hoặc https://www.youtube.com/shorts/..." value={formData.source_url} onChange={(event) => setFormData({ ...formData, source_url: event.target.value })} />
+            <input required type="url" className={FIELD_CLASS} placeholder="https://www.tiktok.com/@... hoặc https://www.youtube.com/watch?v=... hoặc playlist/kênh YouTube" value={formData.source_url} onChange={(event) => setFormData({ ...formData, source_url: event.target.value })} />
           </label>
           <label className="space-y-2 xl:col-span-12">
             <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Google Sheet sản phẩm</span>
@@ -161,8 +161,9 @@ export default function CampaignSection({
             <div className={cx(MUTED_CARD_CLASS, 'text-sm leading-7 text-[var(--text-soft)]')}>
               <div className="text-[11px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Ví dụ hợp lệ</div>
               <div className="mt-3 break-all">TikTok: `https://www.tiktok.com/@creator/video/...`</div>
+              <div className="mt-1 break-all">YouTube video: `https://www.youtube.com/watch?v=...` hoặc `https://youtu.be/...`</div>
               <div className="mt-1 break-all">YouTube Shorts: `https://www.youtube.com/shorts/...`</div>
-              <div className="mt-1 break-all">Nguồn Shorts: `https://www.youtube.com/@creator/shorts`</div>
+              <div className="mt-1 break-all">Playlist/Kênh: `https://www.youtube.com/playlist?list=...` hoặc `https://www.youtube.com/@creator/videos`</div>
             </div>
           </div>
           <label className={cx('xl:col-span-8 flex items-center gap-3', CARD_CLASS)}>
@@ -219,7 +220,7 @@ export default function CampaignSection({
           </label>
           <div className="grid gap-3 sm:grid-cols-3">
             <InfoRow label="Campaign TikTok" value={campaignSourceSummary.tiktok} emphasis={campaignSourceFilter === 'tiktok'} />
-            <InfoRow label="Campaign Shorts" value={campaignSourceSummary.youtube} emphasis={campaignSourceFilter === 'youtube'} />
+            <InfoRow label="Campaign YouTube" value={campaignSourceSummary.youtube} emphasis={campaignSourceFilter === 'youtube'} />
             <InfoRow label="Khớp bộ lọc" value={filteredCampaigns.length} />
           </div>
         </div>

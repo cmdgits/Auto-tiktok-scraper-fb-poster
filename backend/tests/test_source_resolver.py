@@ -40,6 +40,34 @@ from app.services.ytdlp_crawler import extract_source_entries
             "https://www.youtube.com/shorts/abc123",
         ),
         (
+            "https://www.youtube.com/watch?v=abc123&si=test",
+            "youtube",
+            "youtube_video",
+            False,
+            "https://www.youtube.com/watch?v=abc123",
+        ),
+        (
+            "https://youtu.be/abc123?si=test",
+            "youtube",
+            "youtube_video",
+            False,
+            "https://www.youtube.com/watch?v=abc123",
+        ),
+        (
+            "https://www.youtube.com/playlist?list=PL123456&si=test",
+            "youtube",
+            "youtube_playlist",
+            True,
+            "https://www.youtube.com/playlist?list=PL123456",
+        ),
+        (
+            "https://www.youtube.com/@creator/videos",
+            "youtube",
+            "youtube_channel",
+            True,
+            "https://www.youtube.com/@creator/videos",
+        ),
+        (
             "https://www.youtube.com/@creator/shorts",
             "youtube",
             "youtube_shorts_feed",
@@ -59,8 +87,6 @@ def test_resolve_content_source_supported_urls(url, platform, source_kind, is_co
 @pytest.mark.parametrize(
     "url",
     [
-        "https://www.youtube.com/watch?v=abc123",
-        "https://youtu.be/abc123",
         "https://example.com/video/123",
     ],
 )
@@ -159,7 +185,7 @@ def test_sync_campaign_backfills_missing_source_metadata(client, auth_headers, d
     assert queued_task.payload["source_kind"] == "tiktok_video"
 
 
-def test_extract_source_entries_filters_to_youtube_shorts(monkeypatch):
+def test_extract_source_entries_supports_mixed_youtube_entries(monkeypatch):
     def fake_extract_metadata(_url):
         return {
             "entries": [
@@ -173,11 +199,11 @@ def test_extract_source_entries_filters_to_youtube_shorts(monkeypatch):
                     "id": "watch-2",
                     "webpage_url": "https://www.youtube.com/watch?v=watch-2",
                     "title": "Video dai",
-                    "description": "Khong phai short",
+                    "description": "Mo ta video dai",
                 },
                 {
-                    "id": "short-3",
-                    "title": "Short 3",
+                    "id": "watch-3",
+                    "title": "Video 3",
                     "description": "",
                 },
             ]
@@ -186,15 +212,18 @@ def test_extract_source_entries_filters_to_youtube_shorts(monkeypatch):
     monkeypatch.setattr("app.services.ytdlp_crawler.extract_metadata", fake_extract_metadata)
 
     entries = extract_source_entries(
-        "https://www.youtube.com/@creator/shorts",
+        "https://www.youtube.com/@creator/videos",
         source_platform="youtube",
-        source_kind="youtube_shorts_feed",
+        source_kind="youtube_channel",
     )
 
-    assert [entry.original_id for entry in entries] == ["short-1", "short-3"]
+    assert [entry.original_id for entry in entries] == ["short-1", "watch-2", "watch-3"]
     assert all(entry.source_platform == "youtube" for entry in entries)
-    assert all(entry.source_kind == "youtube_short" for entry in entries)
-    assert entries[1].source_video_url == "https://www.youtube.com/shorts/short-3"
+    assert entries[0].source_kind == "youtube_short"
+    assert entries[1].source_kind == "youtube_video"
+    assert entries[2].source_kind == "youtube_video"
+    assert entries[1].source_video_url == "https://www.youtube.com/watch?v=watch-2"
+    assert entries[2].source_video_url == "https://www.youtube.com/watch?v=watch-3"
 
 
 def test_extract_source_entries_keeps_single_short_when_webpage_url_is_watch(monkeypatch):
@@ -219,6 +248,28 @@ def test_extract_source_entries_keeps_single_short_when_webpage_url_is_watch(mon
     assert entries[0].original_id == "abc123"
     assert entries[0].source_video_url == "https://www.youtube.com/shorts/abc123"
     assert entries[0].source_kind == "youtube_short"
+
+
+def test_extract_source_entries_normalizes_youtu_be_single_video(monkeypatch):
+    def fake_extract_metadata(_url):
+        return {
+            "id": "abc123",
+            "webpage_url": "https://youtu.be/abc123?si=test",
+            "title": "YouTube single",
+            "description": "Mo ta video",
+        }
+
+    monkeypatch.setattr("app.services.ytdlp_crawler.extract_metadata", fake_extract_metadata)
+
+    entries = extract_source_entries(
+        "https://youtu.be/abc123?si=test",
+        source_platform="youtube",
+        source_kind="youtube_video",
+    )
+
+    assert len(entries) == 1
+    assert entries[0].source_video_url == "https://www.youtube.com/watch?v=abc123"
+    assert entries[0].source_kind == "youtube_video"
 
 
 def test_extract_source_entries_combines_title_and_description_for_unique_caption_context(monkeypatch):
@@ -286,10 +337,10 @@ def test_extract_metadata_ignores_playlist_entry_errors(monkeypatch):
 
 def test_sync_campaign_content_uses_normalized_youtube_entries(monkeypatch, db_session):
     campaign = Campaign(
-        name="YouTube feed campaign",
-        source_url="https://www.youtube.com/@creator/shorts",
+        name="YouTube channel campaign",
+        source_url="https://www.youtube.com/@creator/videos",
         source_platform="youtube",
-        source_kind="youtube_shorts_feed",
+        source_kind="youtube_channel",
         status=CampaignStatus.active,
         schedule_interval=15,
         last_sync_status="idle",
@@ -300,7 +351,7 @@ def test_sync_campaign_content_uses_normalized_youtube_entries(monkeypatch, db_s
 
     def fake_extract_source_entries(_url, source_platform, source_kind):
         assert source_platform == "youtube"
-        assert source_kind == "youtube_shorts_feed"
+        assert source_kind == "youtube_channel"
         from app.services.ytdlp_crawler import NormalizedMediaEntry
 
         return [
@@ -314,13 +365,13 @@ def test_sync_campaign_content_uses_normalized_youtube_entries(monkeypatch, db_s
                 source_kind="youtube_short",
             ),
             NormalizedMediaEntry(
-                original_id="short-b",
-                source_video_url="https://www.youtube.com/shorts/short-b",
+                original_id="watch-b",
+                source_video_url="https://www.youtube.com/watch?v=watch-b",
                 original_caption="Caption B",
-                title="Short B",
+                title="Watch B",
                 description="Caption B",
                 source_platform="youtube",
-                source_kind="youtube_short",
+                source_kind="youtube_video",
             ),
         ]
 
@@ -342,11 +393,11 @@ def test_sync_campaign_content_uses_normalized_youtube_entries(monkeypatch, db_s
     assert result["videos_added"] == 2
 
     videos = db_session.query(Video).filter(Video.campaign_id == campaign.id).order_by(Video.original_id.asc()).all()
-    assert [video.original_id for video in videos] == ["short-a", "short-b"]
+    assert [video.original_id for video in videos] == ["short-a", "watch-b"]
     assert all(video.source_platform == "youtube" for video in videos)
-    assert all(video.source_kind == "youtube_short" for video in videos)
+    assert [video.source_kind for video in videos] == ["youtube_short", "youtube_video"]
     assert all(video.status == VideoStatus.ready for video in videos)
-    assert videos[0].file_path.endswith("youtube_short-short-a.mp4")
+    assert videos[0].file_path.endswith("youtube-short-a.mp4")
 
 
 def test_sync_campaign_content_uses_schedule_start_at(monkeypatch, db_session):

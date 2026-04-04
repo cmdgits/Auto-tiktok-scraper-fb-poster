@@ -155,7 +155,7 @@ const STATUS_FILTERS = [
 const SOURCE_PLATFORM_FILTERS = [
   { value: 'all', label: 'Tất cả nguồn' },
   { value: 'tiktok', label: 'TikTok' },
-  { value: 'youtube', label: 'YouTube Shorts' },
+  { value: 'youtube', label: 'YouTube' },
 ];
 
 const NAV_ITEMS = [
@@ -209,7 +209,7 @@ const CONVERSATION_STATUS_META = {
 
 const SOURCE_PLATFORM_META = {
   tiktok: { label: 'TikTok', tone: 'sky' },
-  youtube: { label: 'YouTube Shorts', tone: 'rose' },
+  youtube: { label: 'YouTube', tone: 'rose' },
   unknown: { label: 'Chưa rõ nguồn', tone: 'slate' },
 };
 
@@ -218,7 +218,10 @@ const SOURCE_KIND_LABELS = {
   tiktok_profile: 'Hồ sơ TikTok',
   tiktok_shortlink: 'Link TikTok rút gọn',
   tiktok_legacy: 'Nguồn TikTok cũ',
+  youtube_video: 'Video YouTube',
   youtube_short: 'YouTube Short',
+  youtube_channel: 'Kênh YouTube',
+  youtube_playlist: 'Playlist YouTube',
   youtube_shorts_feed: 'Nguồn Shorts YouTube',
 };
 
@@ -408,7 +411,7 @@ function detectSourcePreview(rawUrl) {
       status: 'idle',
       tone: 'slate',
       title: 'Chưa nhập nguồn',
-      detail: 'Hỗ trợ TikTok và YouTube Shorts.',
+      detail: 'Hỗ trợ TikTok và nhiều dạng nguồn YouTube.',
     };
   }
 
@@ -456,12 +459,28 @@ function detectSourcePreview(rawUrl) {
     }
 
     if (['youtube.com', 'www.youtube.com', 'm.youtube.com'].includes(host)) {
+      if (path === '/watch' && parsed.searchParams.get('v')) {
+        return {
+          status: 'ok',
+          tone: 'rose',
+          title: 'Video YouTube đơn lẻ',
+          detail: 'Phù hợp khi bạn muốn lấy đúng một video YouTube cụ thể.',
+        };
+      }
       if (/^\/shorts\/[^/]+$/i.test(path)) {
         return {
           status: 'ok',
           tone: 'rose',
           title: 'YouTube Short đơn lẻ',
           detail: 'Phù hợp khi bạn muốn lấy đúng một short cụ thể.',
+        };
+      }
+      if (path === '/playlist' && parsed.searchParams.get('list')) {
+        return {
+          status: 'ok',
+          tone: 'rose',
+          title: 'Playlist YouTube',
+          detail: 'Worker sẽ lấy các video hợp lệ từ playlist này.',
         };
       }
       if (/^\/(?:@[^/]+|channel\/[^/]+|c\/[^/]+|user\/[^/]+)\/shorts$/i.test(path)) {
@@ -472,20 +491,30 @@ function detectSourcePreview(rawUrl) {
           detail: 'Worker sẽ chỉ lấy các Shorts hợp lệ từ nguồn này.',
         };
       }
+      if (/^\/(?:@[^/]+|channel\/[^/]+|c\/[^/]+|user\/[^/]+)(?:\/(?:videos|featured|streams|live|playlists))?$/i.test(path)) {
+        return {
+          status: 'ok',
+          tone: 'rose',
+          title: 'Kênh YouTube',
+          detail: 'Worker sẽ lấy các video từ kênh hoặc mục nội dung bạn chọn.',
+        };
+      }
       return {
         status: 'warning',
         tone: 'amber',
-        title: 'Link YouTube chưa đúng scope',
-        detail: 'Chỉ hỗ trợ /shorts/... hoặc nguồn /@handle/shorts.',
+        title: 'Link YouTube chưa đúng mẫu',
+        detail: 'Hãy dùng link video, Shorts, playlist hoặc trang kênh YouTube hợp lệ.',
       };
     }
 
     if (['youtu.be', 'www.youtu.be'].includes(host)) {
       return {
-        status: 'warning',
-        tone: 'amber',
-        title: 'Link rút gọn YouTube chưa hỗ trợ',
-        detail: 'Hãy dùng URL đầy đủ dạng youtube.com/shorts/...',
+        status: path.length > 1 ? 'ok' : 'warning',
+        tone: path.length > 1 ? 'rose' : 'amber',
+        title: path.length > 1 ? 'Link rút gọn YouTube' : 'Link rút gọn YouTube chưa hợp lệ',
+        detail: path.length > 1
+          ? 'Hệ thống sẽ tự quy đổi sang link video YouTube đầy đủ.'
+          : 'Hãy dùng link rút gọn có chứa mã video.',
       };
     }
 
@@ -493,7 +522,7 @@ function detectSourcePreview(rawUrl) {
       status: 'warning',
       tone: 'amber',
       title: 'Nguồn chưa được hỗ trợ',
-      detail: 'Hiện chỉ hỗ trợ TikTok và YouTube Shorts.',
+      detail: 'Hiện chỉ hỗ trợ TikTok và YouTube.',
     };
   } catch {
     return {
@@ -2645,7 +2674,7 @@ function App() {
       tone: 'sky',
     },
     {
-      label: 'Nguồn Shorts',
+      label: 'Nguồn YouTube',
       value: stats.by_source?.youtube?.campaigns ?? 0,
       detail: `${stats.by_source?.youtube?.ready ?? 0} video sẵn sàng`,
       icon: Play,
