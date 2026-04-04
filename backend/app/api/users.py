@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy.orm import Session
 import uuid
 
@@ -10,7 +10,7 @@ from app.models.models import User, UserRole
 from app.services.accounts import count_admin_users, create_user, generate_temporary_password, serialize_user
 from app.services.observability import record_event
 from app.services.runtime_settings import update_runtime_settings
-from app.services.security import hash_password
+from app.services.security import hash_password, validate_password_strength
 
 router = APIRouter(prefix="/users", tags=["Người dùng"])
 
@@ -33,6 +33,10 @@ class UserUpdateRequest(BaseModel):
     display_name: str | None = Field(default=None, max_length=100)
     role: str | None = None
     is_active: bool | None = None
+
+
+class UserResetPasswordRequest(BaseModel):
+    new_password: str | None = Field(default=None, min_length=8, max_length=100)
 
 
 @router.get("/")
@@ -118,6 +122,7 @@ def update_user_endpoint(
 @router.post("/{user_id}/reset-password")
 def reset_user_password(
     user_id: str,
+    payload: UserResetPasswordRequest | None = Body(default=None),
     admin_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
@@ -125,15 +130,18 @@ def reset_user_password(
     if not user:
         raise HTTPException(status_code=404, detail="Không tìm thấy người dùng.")
 
-    temporary_password = generate_temporary_password()
-    user.password_hash = hash_password(temporary_password)
+    next_password = payload.new_password if payload and payload.new_password else generate_temporary_password()
+    password_error = validate_password_strength(next_password)
+    if password_error:
+        raise HTTPException(status_code=400, detail=password_error)
+    user.password_hash = hash_password(next_password)
     user.must_change_password = True
     db.commit()
 
     if user.username == settings.DEFAULT_ADMIN_USERNAME:
         update_runtime_settings(
             db,
-            {"ADMIN_PASSWORD": temporary_password},
+            {"ADMIN_PASSWORD": next_password},
             actor_user_id=str(admin_user.id),
         )
 
@@ -149,7 +157,7 @@ def reset_user_password(
     )
     return {
         "message": f"Đã đặt lại mật khẩu cho '{user.username}'.",
-        "temporary_password": temporary_password,
+        "temporary_password": None if payload and payload.new_password else next_password,
         "user": serialize_user(user),
     }
 

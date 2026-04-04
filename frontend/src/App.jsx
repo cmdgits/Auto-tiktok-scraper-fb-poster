@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Activity,
   Bot,
@@ -607,6 +607,7 @@ function App() {
   const [loginUser, setLoginUser] = useState('');
   const [loginPass, setLoginPass] = useState('');
   const [loginError, setLoginError] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [notice, setNotice] = useState(null);
   const [actionState, setActionState] = useState({});
   const [captionDrafts, setCaptionDrafts] = useState({});
@@ -625,7 +626,7 @@ function App() {
   const [replyAutomationDrafts, setReplyAutomationDrafts] = useState({});
   const [commentReplyDrafts, setCommentReplyDrafts] = useState({});
   const [userForm, setUserForm] = useState({ username: '', display_name: '', password: '', role: 'operator' });
-  const [passwordForm, setPasswordForm] = useState({ current_password: '', new_password: '' });
+  const [passwordForm, setPasswordForm] = useState({ current_password: '', new_password: '', confirm_password: '' });
   const [activeSection, setActiveSection] = useState(localStorage.getItem('dashboard-active-section') || 'overview');
   const [workerPage, setWorkerPage] = useState(1);
   const [taskPage, setTaskPage] = useState(1);
@@ -921,11 +922,18 @@ function App() {
     }
   };
 
-  const runAction = async (key, action) => {
+  const runAction = async (key, action, options = {}) => {
+    const {
+      successMessage = null,
+      showSuccessNotice = true,
+    } = options;
     setBusy(key, true);
     try {
       const payload = await action();
-      if (payload?.message) showNotice('success', payload.message);
+      if (showSuccessNotice) {
+        const resolvedSuccessMessage = successMessage || payload?.message;
+        if (resolvedSuccessMessage) showNotice('success', resolvedSuccessMessage);
+      }
       await fetchDashboard();
       return payload;
     } catch (error) {
@@ -2045,12 +2053,15 @@ function App() {
 
   const handleLogin = async (event) => {
     event.preventDefault();
+    if (isLoggingIn) return;
     const formData = new FormData(event.currentTarget);
     const username = String(formData.get('username') || loginUser || '').trim();
     const password = String(formData.get('password') || loginPass || '');
 
     setLoginUser(username);
     setLoginPass(password);
+    setLoginError('');
+    setIsLoggingIn(true);
 
     try {
       const response = await fetch(`${API_URL}/auth/login`, {
@@ -2068,11 +2079,15 @@ function App() {
         if (expiresAt) localStorage.setItem('token_expires_at', expiresAt);
         else localStorage.removeItem('token_expires_at');
         setLoginError('');
+        setLoginPass('');
+        showNotice('success', `Xác thực thành công. Chào mừng ${payload.user?.display_name || payload.user?.username || username}.`);
       } else {
         setLoginError(parseMessage(payload, 'Mật khẩu không chính xác!'));
       }
     } catch {
       setLoginError('Lỗi kết nối server.');
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
@@ -2091,16 +2106,23 @@ function App() {
     const formData = new FormData(event.currentTarget);
     const current_password = String(formData.get('current_password') || passwordForm.current_password || '');
     const new_password = String(formData.get('new_password') || passwordForm.new_password || '');
+    const confirm_password = String(formData.get('confirm_password') || passwordForm.confirm_password || '');
 
-    setPasswordForm({ current_password, new_password });
+    setPasswordForm({ current_password, new_password, confirm_password });
+    if (new_password !== confirm_password) {
+      showNotice('error', 'Xác nhận mật khẩu mới chưa khớp.');
+      return;
+    }
 
     const payload = await runAction('change-password', () => requestJson(`${API_URL}/auth/change-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ current_password, new_password }),
-    }));
+    }), {
+      successMessage: 'Đã đổi mật khẩu thành công.',
+    });
     if (payload) {
-      setPasswordForm({ current_password: '', new_password: '' });
+      setPasswordForm({ current_password: '', new_password: '', confirm_password: '' });
       setCurrentUser((current) => (current ? { ...current, must_change_password: false } : current));
     }
   };
@@ -2123,9 +2145,25 @@ function App() {
     }));
   };
 
-  const handleResetUserPassword = async (userId) => {
-    const payload = await runAction(`user-reset-${userId}`, () => requestJson(`${API_URL}/users/${userId}/reset-password`, { method: 'POST' }));
+  const handleResetUserPassword = async (userId, newPassword = '') => {
+    const password = String(newPassword || '');
+    const payload = await runAction(`user-reset-${userId}`, () => requestJson(`${API_URL}/users/${userId}/reset-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(password ? { new_password: password } : {}),
+    }), {
+      showSuccessNotice: false,
+    });
+    if (!payload) return null;
+    if (payload?.temporary_password) {
+      showNotice('success', `${payload.message} Mật khẩu tạm: ${payload.temporary_password}`);
+    } else {
+      showNotice('success', 'Đã đổi mật khẩu thành công cho người dùng.');
+    }
+    return payload;
+    /*
     if (payload?.temporary_password) showNotice('success', `${payload.message} Mật khẩu tạm: ${payload.temporary_password}`);
+    */
   };
 
   const handleDeleteUser = async (userId, username) => {
@@ -2613,6 +2651,7 @@ function App() {
         loginPass={loginPass}
         setLoginPass={setLoginPass}
         loginError={loginError}
+        isLoggingIn={isLoggingIn}
         handleLogin={handleLogin}
         classes={{
           FIELD_CLASS,

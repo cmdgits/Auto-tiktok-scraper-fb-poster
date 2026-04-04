@@ -1,9 +1,12 @@
-﻿import {
+import { useState } from 'react';
+import {
   LogOut,
   RefreshCw,
   ShieldCheck,
   Trash2,
   UserPlus,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 import {
@@ -20,6 +23,12 @@ export default function SecuritySection({
   helpers,
   classes,
 }) {
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [openResetUserId, setOpenResetUserId] = useState(null);
+  const [resetDrafts, setResetDrafts] = useState({});
+  const [resetErrors, setResetErrors] = useState({});
   const {
     currentUser,
     sessionExpiresAt,
@@ -41,6 +50,50 @@ export default function SecuritySection({
   } = actions;
   const { formatDateTime } = helpers;
   const { FIELD_CLASS, BUTTON_PRIMARY, BUTTON_SECONDARY, BUTTON_GHOST } = classes;
+  const getResetDraft = (userId) => resetDrafts[userId] || { new_password: '', confirm_password: '' };
+
+  const updateResetDraft = (userId, field, value) => {
+    setResetDrafts((current) => ({
+      ...current,
+      [userId]: {
+        ...(current[userId] || { new_password: '', confirm_password: '' }),
+        [field]: value,
+      },
+    }));
+    setResetErrors((current) => ({ ...current, [userId]: '' }));
+  };
+
+  const toggleResetForm = (userId) => {
+    setOpenResetUserId((current) => (current === userId ? null : userId));
+    setResetErrors((current) => ({ ...current, [userId]: '' }));
+    setResetDrafts((current) => (
+      current[userId]
+        ? current
+        : {
+          ...current,
+          [userId]: { new_password: '', confirm_password: '' },
+        }
+    ));
+  };
+
+  const handleResetSubmit = async (event, userId) => {
+    event.preventDefault();
+    const draft = getResetDraft(userId);
+    if (draft.new_password !== draft.confirm_password) {
+      setResetErrors((current) => ({ ...current, [userId]: 'Xác nhận mật khẩu mới chưa khớp.' }));
+      return;
+    }
+
+    const payload = await handleResetUserPassword(userId, draft.new_password);
+    if (!payload) return;
+
+    setResetDrafts((current) => ({
+      ...current,
+      [userId]: { new_password: '', confirm_password: '' },
+    }));
+    setResetErrors((current) => ({ ...current, [userId]: '' }));
+    setOpenResetUserId((current) => (current === userId ? null : current));
+  };
 
   return (
     <div className="grid gap-6 2xl:grid-cols-12">
@@ -61,29 +114,69 @@ export default function SecuritySection({
         <form onSubmit={handleChangePassword} className="space-y-4" autoComplete="on">
           <label className="block space-y-2">
             <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Mật khẩu hiện tại</span>
-            <input
-              type="password"
-              name="current_password"
-              autoComplete="current-password"
-              spellCheck="false"
-              required
-              className={FIELD_CLASS}
-              value={passwordForm.current_password}
-              onChange={(event) => setPasswordForm((current) => ({ ...current, current_password: event.target.value }))}
-            />
+            <div className="relative">
+              <input
+                type={showCurrentPassword ? 'text' : 'password'}
+                name="current_password"
+                autoComplete="current-password"
+                spellCheck="false"
+                required
+                className={cx(FIELD_CLASS, 'pr-10')}
+                value={passwordForm.current_password}
+                onChange={(event) => setPasswordForm((current) => ({ ...current, current_password: event.target.value }))}
+              />
+              <button
+                type="button"
+                onClick={() => setShowCurrentPassword((prev) => !prev)}
+                className="absolute inset-y-0 right-0 flex items-center pr-3 text-[var(--text-muted)] hover:text-slate-600 focus:outline-none"
+              >
+                {showCurrentPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+              </button>
+            </div>
           </label>
           <label className="block space-y-2">
             <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Mật khẩu mới</span>
-            <input
-              type="password"
-              name="new_password"
-              autoComplete="new-password"
-              spellCheck="false"
-              required
-              className={FIELD_CLASS}
-              value={passwordForm.new_password}
-              onChange={(event) => setPasswordForm((current) => ({ ...current, new_password: event.target.value }))}
-            />
+            <div className="relative">
+              <input
+                type={showNewPassword ? 'text' : 'password'}
+                name="new_password"
+                autoComplete="new-password"
+                spellCheck="false"
+                required
+                className={cx(FIELD_CLASS, 'pr-10')}
+                value={passwordForm.new_password}
+                onChange={(event) => setPasswordForm((current) => ({ ...current, new_password: event.target.value }))}
+              />
+              <button
+                type="button"
+                onClick={() => setShowNewPassword((prev) => !prev)}
+                className="absolute inset-y-0 right-0 flex items-center pr-3 text-[var(--text-muted)] hover:text-slate-600 focus:outline-none"
+              >
+                {showNewPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+              </button>
+            </div>
+          </label>
+          <label className="block space-y-2">
+            <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Xác nhận mật khẩu mới</span>
+            <div className="relative">
+              <input
+                type={showConfirmPassword ? 'text' : 'password'}
+                name="confirm_password"
+                autoComplete="new-password"
+                spellCheck="false"
+                required
+                className={cx(FIELD_CLASS, 'pr-10')}
+                value={passwordForm.confirm_password || ''}
+                onChange={(event) => setPasswordForm((current) => ({ ...current, confirm_password: event.target.value }))}
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword((prev) => !prev)}
+                className="absolute inset-y-0 right-0 flex items-center pr-3 text-[var(--text-muted)] hover:text-slate-600 focus:outline-none"
+              >
+                {showConfirmPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+              </button>
+            </div>
           </label>
           <button type="submit" disabled={actionState['change-password']} className={cx(BUTTON_PRIMARY, 'w-full')}>
             <ShieldCheck className="h-4 w-4" />
@@ -143,8 +236,12 @@ export default function SecuritySection({
             </form>
             {users.length === 0 ? <EmptyState title="Chưa có thêm tài khoản" description="Tạo tài khoản để bắt đầu." /> : (
               <div className="grid gap-4 xl:grid-cols-2">
-                {users.map((user) => (
-                  <article key={user.id} className="rounded-[22px] border border-slate-200/80 bg-white/80 p-4">
+                {users.map((user) => {
+                  const resetDraft = getResetDraft(user.id);
+                  const isResetOpen = openResetUserId === user.id;
+
+                  return (
+                    <article key={user.id} className="rounded-[22px] border border-slate-200/80 bg-white/80 p-4">
                     <div className="flex flex-wrap items-start justify-between gap-4">
                       <div>
                         <div className="font-medium text-slate-900">{user.display_name || user.username}</div>
@@ -170,7 +267,7 @@ export default function SecuritySection({
                       </button>
                     </div>
                     <div className="mobile-action-stack mt-3">
-                      <button type="button" className={BUTTON_SECONDARY} onClick={() => handleResetUserPassword(user.id)} disabled={actionState[`user-reset-${user.id}`]}>
+                      <button type="button" className={BUTTON_SECONDARY} onClick={() => toggleResetForm(user.id)} disabled={actionState[`user-reset-${user.id}`]}>
                         <RefreshCw className="h-4 w-4" />
                         {actionState[`user-reset-${user.id}`] ? 'Đang đặt lại...' : 'Đặt lại mật khẩu'}
                       </button>
@@ -184,8 +281,54 @@ export default function SecuritySection({
                         {actionState[`user-delete-${user.id}`] ? 'Đang xóa...' : 'Xóa vĩnh viễn'}
                       </button>
                     </div>
-                  </article>
-                ))}
+                    {isResetOpen ? (
+                      <form onSubmit={(event) => handleResetSubmit(event, user.id)} className="mt-4 rounded-[22px] border border-sky-200/80 bg-sky-50/70 p-4" autoComplete="off">
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <label className="space-y-2">
+                            <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Mật khẩu mới</span>
+                            <input
+                              type="password"
+                              minLength={8}
+                              required
+                              className={FIELD_CLASS}
+                              value={resetDraft.new_password}
+                              onChange={(event) => updateResetDraft(user.id, 'new_password', event.target.value)}
+                            />
+                          </label>
+                          <label className="space-y-2">
+                            <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Xác nhận mật khẩu</span>
+                            <input
+                              type="password"
+                              minLength={8}
+                              required
+                              className={FIELD_CLASS}
+                              value={resetDraft.confirm_password}
+                              onChange={(event) => updateResetDraft(user.id, 'confirm_password', event.target.value)}
+                            />
+                          </label>
+                        </div>
+                        <div className="mt-3 text-sm text-[var(--text-soft)]">
+                          Tài khoản này sẽ bị buộc đổi mật khẩu ở lần đăng nhập kế tiếp.
+                        </div>
+                        {resetErrors[user.id] ? (
+                          <div className="mt-3 rounded-[18px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                            {resetErrors[user.id]}
+                          </div>
+                        ) : null}
+                        <div className="mt-4 flex flex-wrap justify-end gap-2">
+                          <button type="button" className={BUTTON_GHOST} onClick={() => toggleResetForm(user.id)}>
+                            Hủy
+                          </button>
+                          <button type="submit" className={BUTTON_PRIMARY} disabled={actionState[`user-reset-${user.id}`]}>
+                            <ShieldCheck className="h-4 w-4" />
+                            {actionState[`user-reset-${user.id}`] ? 'Đang cập nhật...' : 'Lưu mật khẩu mới'}
+                          </button>
+                        </div>
+                      </form>
+                    ) : null}
+                    </article>
+                  );
+                })}
               </div>
             )}
           </div>

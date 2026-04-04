@@ -1,5 +1,6 @@
 import json
 import re
+import time
 import unicodedata
 from typing import Any
 
@@ -120,7 +121,18 @@ CAPTION_FALLBACK_HASHTAGS = (
     "khampha",
     "reelsviet",
 )
+CAPTION_EXTERNAL_TREND_CACHE_TTL_SECONDS = 60 * 60 * 6
+CAPTION_EXTERNAL_TREND_QUERY_LIMIT = 6
+CAPTION_SEARCH_INTENT_PREFIXES = {
+    "tutorial": ("cach", "meo", "kinhnghiem"),
+    "review": ("review", "danhgia", "camnhan"),
+    "beauty": ("review", "meo", "lamdep"),
+    "fashion": ("review", "meo", "phoido"),
+    "entertainment": ("videohay", "xemlagi", "giaitri"),
+    "food": ("review", "monngon", "anuong"),
+}
 VIETNAMESE_DIACRITIC_RE = re.compile(r"[À-ỹ]")
+_CAPTION_EXTERNAL_TREND_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 
 def _merge_prompt_instructions(default_prompt: str, prompt_override: str | None = None) -> str:
     extra_prompt = (prompt_override or "").strip()
@@ -205,7 +217,298 @@ def _sentence_case_text(text: str) -> str:
     return normalized[0].upper() + normalized[1:]
 
 
-def _build_facebook_hashtags(original_caption: str, ai_text: str | None = None, *, limit: int = 5) -> str:
+def _normalize_trend_text(value: str) -> str:
+    normalized = _normalize_text(_clean_caption_source_text(value))
+    return normalized[:96].strip()
+
+
+def _normalize_trend_geo(value: str | None) -> str:
+    normalized = _normalize_text(value or "").upper()
+    if not normalized:
+        return "VN"
+    return re.sub(r"[^A-Z]", "", normalized)[:4] or "VN"
+
+
+def _push_unique_text(values: list[str], seen: set[str], raw_value: str, *, limit: int) -> None:
+    normalized = _normalize_trend_text(raw_value)
+    if not normalized:
+        return
+    slug = _slugify_caption_token(normalized)
+    if not slug or slug.isdigit() or slug in seen or slug in CAPTION_TIKTOK_TERMS:
+        return
+    seen.add(slug)
+    values.append(normalized)
+    if len(values) > limit:
+        del values[limit:]
+
+
+def _build_trend_seed_queries(original_caption: str, *, limit: int = 2) -> list[str]:
+    cleaned = _clean_caption_source_text(original_caption)
+    seeds: list[str] = []
+    seen: set[str] = set()
+
+    def push(seed: str):
+        normalized = _normalize_trend_text(seed)
+        if not normalized:
+            return
+        slug = _slugify_caption_token(normalized)
+        if not slug or slug in seen:
+            return
+        seen.add(slug)
+        seeds.append(normalized)
+
+    if cleaned:
+        push(_truncate_caption_words(cleaned, limit=7))
+
+    keywords = _extract_caption_keywords(original_caption, limit=4)
+    if len(keywords) >= 2:
+        push(" ".join(keywords[:2]))
+    if len(keywords) >= 3:
+        push(" ".join(keywords[:3]))
+
+    return seeds[:limit]
+
+
+def _coerce_trend_query_items(payload: Any) -> list[str]:
+    values: list[str] = []
+    seen: set[str] = set()
+
+    def push(item: str):
+        _push_unique_text(values, seen, item, limit=CAPTION_EXTERNAL_TREND_QUERY_LIMIT)
+
+    def visit(node: Any):
+        if len(values) >= CAPTION_EXTERNAL_TREND_QUERY_LIMIT:
+            return
+        if isinstance(node, str):
+            push(node)
+            return
+        if isinstance(node, dict):
+            for key in ("query", "keyword", "term", "title", "name", "value", "hashtag"):
+                candidate = node.get(key)
+                if isinstance(candidate, str):
+                    push(candidate)
+            for key in (
+                "queries",
+                "related_queries",
+                "relatedQueries",
+                "suggestions",
+                "hashtags",
+                "items",
+                "results",
+                "top",
+                "rising",
+            ):
+                candidate = node.get(key)
+                if candidate is not None:
+                    visit(candidate)
+            for candidate in node.values():
+                if isinstance(candidate, (dict, list, tuple)):
+                    visit(candidate)
+            return
+        if isinstance(node, (list, tuple)):
+            for candidate in node:
+                visit(candidate)
+                if len(values) >= CAPTION_EXTERNAL_TREND_QUERY_LIMIT:
+                    break
+
+    visit(payload)
+    return values[:CAPTION_EXTERNAL_TREND_QUERY_LIMIT]
+
+
+def _fetch_serpapi_related_queries(seed_query: str, *, geo: str) -> list[str]:
+    api_key = resolve_runtime_value("SERPAPI_API_KEY").strip()
+    if not api_key:
+        return []
+    response = request_with_retries(
+        "GET",
+        "https://serpapi.com/search.json",
+        params={
+            "engine": "google_trends",
+            "data_type": "RELATED_QUERIES",
+            "q": seed_query,
+            "geo": geo,
+            "hl": "vi",
+            "api_key": api_key,
+        },
+        scope="caption_trends",
+        operation="serpapi_google_trends_related_queries",
+    )
+    if response.status_code >= 400:
+        log_structured(
+            "caption_trends",
+            "warning",
+            "Khong lay duoc related queries tu SerpApi.",
+            details={"status_code": response.status_code, "seed_query": seed_query, "geo": geo},
+        )
+        return []
+    try:
+        payload = response.json()
+    except ValueError:
+        return []
+    return _coerce_trend_query_items(payload.get("related_queries") or payload)
+
+
+def _fetch_search_service_queries(seed_query: str, *, geo: str) -> list[str]:
+    endpoint = resolve_runtime_value("TREND_SEARCH_ENDPOINT").strip()
+    if not endpoint:
+        return []
+    headers = {}
+    api_key = resolve_runtime_value("TREND_SEARCH_API_KEY").strip()
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    response = request_with_retries(
+        "GET",
+        endpoint,
+        params={"q": seed_query, "geo": geo, "hl": "vi"},
+        headers=headers or None,
+        scope="caption_trends",
+        operation="external_trend_search_service",
+    )
+    if response.status_code >= 400:
+        log_structured(
+            "caption_trends",
+            "warning",
+            "Search service ngoai tra ve loi khi lay trend query.",
+            details={"status_code": response.status_code, "seed_query": seed_query, "geo": geo},
+        )
+        return []
+    try:
+        payload = response.json()
+    except ValueError:
+        return []
+    return _coerce_trend_query_items(payload)
+
+
+def _fetch_google_suggest_queries(seed_query: str) -> list[str]:
+    response = request_with_retries(
+        "GET",
+        "https://suggestqueries.google.com/complete/search",
+        params={"client": "firefox", "hl": "vi", "q": seed_query},
+        scope="caption_trends",
+        operation="google_suggest_related_queries",
+    )
+    if response.status_code >= 400:
+        return []
+    try:
+        payload = response.json()
+    except ValueError:
+        return []
+    suggestions = payload[1] if isinstance(payload, list) and len(payload) > 1 else payload
+    return _coerce_trend_query_items(suggestions)
+
+
+def _build_external_trend_hashtags(queries: list[str], original_caption: str, *, limit: int = 3) -> list[str]:
+    hashtags: list[str] = []
+    seen: set[str] = set()
+
+    def push(tag: str):
+        slug = _slugify_caption_token(tag)
+        if not slug or slug in CAPTION_TIKTOK_TERMS or slug in seen:
+            return
+        seen.add(slug)
+        hashtags.append(slug)
+
+    for query in queries:
+        full_slug = _slugify_caption_token(query)
+        if 6 <= len(full_slug) <= 24:
+            push(full_slug)
+        keywords = _extract_caption_keywords(query, limit=4)
+        if len(keywords) >= 2:
+            push("".join(keywords[:2]))
+        if len(keywords) >= 3:
+            push("".join(keywords[:3]))
+        if len(hashtags) >= limit:
+            return hashtags[:limit]
+
+    for tag in _build_search_intent_hashtags(original_caption, limit=limit):
+        push(tag)
+        if len(hashtags) >= limit:
+            break
+
+    return hashtags[:limit]
+
+
+def _get_external_trend_context(original_caption: str) -> dict[str, Any]:
+    cleaned = _clean_caption_source_text(original_caption)
+    if not cleaned:
+        return {"queries": [], "hashtags": [], "sources": []}
+
+    geo = _normalize_trend_geo(resolve_runtime_value("TREND_GEO"))
+    cache_key = (
+        f"{_slugify_caption_token(cleaned)}::{geo}::"
+        f"{int(bool(resolve_runtime_value('SERPAPI_API_KEY').strip()))}::"
+        f"{int(bool(resolve_runtime_value('TREND_SEARCH_ENDPOINT').strip()))}"
+    )
+    cached = _CAPTION_EXTERNAL_TREND_CACHE.get(cache_key)
+    now = time.time()
+    if cached and now - cached[0] < CAPTION_EXTERNAL_TREND_CACHE_TTL_SECONDS:
+        return dict(cached[1])
+
+    queries: list[str] = []
+    seen: set[str] = set()
+    sources: list[str] = []
+    seeds = _build_trend_seed_queries(original_caption)
+
+    def merge(source_name: str, items: list[str]):
+        if not items:
+            return
+        if source_name not in sources:
+            sources.append(source_name)
+        for item in items:
+            _push_unique_text(queries, seen, item, limit=CAPTION_EXTERNAL_TREND_QUERY_LIMIT)
+
+    for seed in seeds[:1]:
+        try:
+            merge("serpapi_google_trends", _fetch_serpapi_related_queries(seed, geo=geo))
+        except Exception as exc:
+            log_structured(
+                "caption_trends",
+                "warning",
+                "Lay trend tu SerpApi that bai, se bo qua provider nay.",
+                details={"error": str(exc), "seed_query": seed},
+            )
+
+    for seed in seeds[:1]:
+        try:
+            merge("external_search_service", _fetch_search_service_queries(seed, geo=geo))
+        except Exception as exc:
+            log_structured(
+                "caption_trends",
+                "warning",
+                "Lay trend tu search service ngoai that bai, se bo qua provider nay.",
+                details={"error": str(exc), "seed_query": seed},
+            )
+
+    if len(queries) < CAPTION_EXTERNAL_TREND_QUERY_LIMIT:
+        for seed in seeds:
+            try:
+                merge("google_suggest", _fetch_google_suggest_queries(seed))
+            except Exception as exc:
+                log_structured(
+                    "caption_trends",
+                    "warning",
+                    "Lay trend tu Google Suggest that bai, se dung fallback noi bo.",
+                    details={"error": str(exc), "seed_query": seed},
+                )
+            if len(queries) >= CAPTION_EXTERNAL_TREND_QUERY_LIMIT:
+                break
+
+    context = {
+        "queries": queries[:CAPTION_EXTERNAL_TREND_QUERY_LIMIT],
+        "hashtags": _build_external_trend_hashtags(queries, original_caption, limit=3),
+        "sources": sources,
+    }
+    _CAPTION_EXTERNAL_TREND_CACHE[cache_key] = (now, context)
+    return dict(context)
+
+
+def _build_facebook_hashtags(
+    original_caption: str,
+    ai_text: str | None = None,
+    *,
+    limit: int = 5,
+    external_hashtag_candidates: list[str] | None = None,
+) -> str:
     hashtag_tokens: list[str] = []
     seen: set[str] = set()
 
@@ -215,6 +518,23 @@ def _build_facebook_hashtags(original_caption: str, ai_text: str | None = None, 
             continue
         seen.add(slug)
         hashtag_tokens.append(slug)
+        if len(hashtag_tokens) >= limit:
+            return " ".join(f"#{item}" for item in hashtag_tokens)
+
+    for candidate in external_hashtag_candidates or []:
+        slug = _slugify_caption_token(candidate)
+        if not slug or slug in CAPTION_TIKTOK_TERMS or slug in seen:
+            continue
+        seen.add(slug)
+        hashtag_tokens.append(slug)
+        if len(hashtag_tokens) >= limit:
+            return " ".join(f"#{item}" for item in hashtag_tokens)
+
+    for candidate in _build_search_intent_hashtags(original_caption, limit=limit):
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        hashtag_tokens.append(candidate)
         if len(hashtag_tokens) >= limit:
             return " ".join(f"#{item}" for item in hashtag_tokens)
 
@@ -235,6 +555,58 @@ def _build_facebook_hashtags(original_caption: str, ai_text: str | None = None, 
             break
 
     return " ".join(f"#{item}" for item in hashtag_tokens)
+
+
+def _detect_caption_hashtag_strategy(original_caption: str) -> str:
+    if _caption_matches_topic(original_caption, "meo", "tip", "cach", "huongdan"):
+        return "tutorial"
+    if _caption_matches_topic(original_caption, "review", "danhgia", "test", "thudo"):
+        return "review"
+    if _caption_matches_topic(original_caption, "lamdep", "makeup", "skincare"):
+        return "beauty"
+    if _caption_matches_topic(original_caption, "thoitrang", "phoido", "outfit"):
+        return "fashion"
+    if _caption_matches_topic(original_caption, "amthuc", "monan", "douong", "anuong", "nauan"):
+        return "food"
+    return "entertainment"
+
+
+def _build_search_intent_hashtags(original_caption: str, *, limit: int = 5) -> list[str]:
+    keywords = _extract_caption_keywords(original_caption, limit=max(limit, 4))
+    compound_keywords: list[str] = []
+    for index in range(len(keywords) - 1):
+        combined = f"{keywords[index]}{keywords[index + 1]}"
+        if 5 <= len(combined) <= 24:
+            compound_keywords.append(combined)
+    strategy = _detect_caption_hashtag_strategy(original_caption)
+    prefixes = CAPTION_SEARCH_INTENT_PREFIXES.get(strategy, ())
+
+    hashtags: list[str] = []
+    seen: set[str] = set()
+
+    def push(tag: str):
+        slug = _slugify_caption_token(tag)
+        if not slug or slug in CAPTION_TIKTOK_TERMS or slug in seen:
+            return
+        seen.add(slug)
+        hashtags.append(slug)
+
+    for keyword in [*compound_keywords[:2], *keywords[:2]]:
+        push(keyword)
+        for prefix in prefixes[:2]:
+            if keyword.startswith(prefix):
+                push(keyword)
+            else:
+                push(f"{prefix}{keyword}")
+        if len(hashtags) >= limit:
+            return hashtags[:limit]
+
+    for prefix in prefixes:
+        push(prefix)
+        if len(hashtags) >= limit:
+            return hashtags[:limit]
+
+    return hashtags[:limit]
 
 
 def _caption_matches_topic(original_caption: str, *keywords: str) -> bool:
@@ -283,10 +655,15 @@ def _build_caption_middle_line(original_caption: str) -> str:
 
 
 def _build_caption_fallback(original_caption: str) -> str:
+    trend_context = _get_external_trend_context(original_caption)
     hook = _build_caption_hook(original_caption)
     detail = _build_caption_middle_line(original_caption)
     cta = _build_caption_cta(original_caption)
-    hashtags = _build_facebook_hashtags(original_caption)
+    hashtags = _build_facebook_hashtags(
+        original_caption,
+        " ".join(f"#{item}" for item in _build_search_intent_hashtags(original_caption)),
+        external_hashtag_candidates=trend_context["hashtags"],
+    )
     return f"{hook}\n{detail}\n{cta}\n\n{hashtags}".strip()
 
 
@@ -327,7 +704,12 @@ def _sanitize_generated_caption(generated_caption: str, original_caption: str) -
     if not normalized_body:
         return fallback
 
-    hashtags = _build_facebook_hashtags(original_caption, generated_caption)
+    trend_context = _get_external_trend_context(original_caption)
+    hashtags = _build_facebook_hashtags(
+        original_caption,
+        generated_caption,
+        external_hashtag_candidates=trend_context["hashtags"],
+    )
     body_text = "\n".join(normalized_body).strip()
     if not hashtags:
         return body_text
@@ -978,7 +1360,16 @@ Caption gốc: {original_caption}"""
 
 
 def generate_caption(original_caption: str) -> str:
+    trend_context = _get_external_trend_context(original_caption)
     fallback = _build_caption_fallback(original_caption)
+    trend_hint_block = ""
+    if trend_context["queries"]:
+        trend_hint_block = (
+            "\nExternal trend/search hints:\n"
+            f"- Source(s): {', '.join(trend_context['sources']) or 'fallback'}\n"
+            f"- Related queries: {', '.join(trend_context['queries'][:4])}\n"
+            "Use these hints only if they genuinely match the original caption."
+        )
     prompt = f"""You are a Facebook Reels copywriter.
 Mandatory rules:
 1. Rewrite the original caption into a Facebook-first caption with 2-3 short lines only.
@@ -988,14 +1379,17 @@ Mandatory rules:
 5. Add one short viewer prompt or curiosity line based on the original caption when possible.
 6. Remove every old hashtag from the source caption.
 7. Add 4-5 relevant hashtags for Facebook only.
-8. Never use TikTok-specific hashtags or phrases such as #tiktok, #fyp, #xuhuong, #douyin, #foryou.
-9. Keep the meaning close to the original caption. Do not invent new facts.
-10. Write in natural Vietnamese with full diacritics.
-11. Never write Vietnamese without diacritics.
-12. Do not explain your process. Return caption text only.
+8. The hashtags must match common search intent around the topic, for example review, how-to, tips, experience, product/topic keywords.
+9. Prefer hashtags that real viewers would search for this topic, not generic viral bait.
+10. Never use TikTok-specific hashtags or phrases such as #tiktok, #fyp, #xuhuong, #douyin, #foryou.
+11. Keep the meaning close to the original caption. Do not invent new facts.
+12. Write in natural Vietnamese with full diacritics.
+13. Never write Vietnamese without diacritics.
+14. Do not explain your process. Return caption text only.
+15. If external trend hints are provided, you may borrow only the relevant search phrases and hashtags that fit the same topic exactly.
 
 Original caption:
-{original_caption}"""
+{original_caption}{trend_hint_block}"""
     generated = _generate_with_ai(prompt, fallback, timeout=30)
     return _sanitize_generated_caption(generated, original_caption)
 

@@ -128,7 +128,7 @@ def login(creds: LoginRequest, request: Request, db: Session = Depends(get_db)):
             status_code=429,
             detail=f"Đăng nhập sai quá nhiều lần. Vui lòng thử lại sau {retry_after} giây.",
         )
-    raise HTTPException(status_code=401, detail="Sai tên đăng nhập hoặc mật khẩu!")
+    raise HTTPException(status_code=401, detail="Sai thông tin người dùng hoặc mật khẩu không đúng")
 
 
 @router.get("/me")

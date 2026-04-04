@@ -1,7 +1,20 @@
 from app.services import ai_generator
 
 
+def stub_trend_context(monkeypatch, *, queries=None, hashtags=None, sources=None):
+    monkeypatch.setattr(
+        ai_generator,
+        "_get_external_trend_context",
+        lambda original_caption: {
+            "queries": list(queries or []),
+            "hashtags": list(hashtags or []),
+            "sources": list(sources or []),
+        },
+    )
+
+
 def test_generate_caption_sanitizes_tiktok_hashtags(monkeypatch):
+    stub_trend_context(monkeypatch)
     captured = {}
 
     def fake_generate(prompt, fallback, **kwargs):
@@ -24,6 +37,7 @@ def test_generate_caption_sanitizes_tiktok_hashtags(monkeypatch):
 
 
 def test_generate_caption_fallback_is_facebook_first(monkeypatch):
+    stub_trend_context(monkeypatch)
     monkeypatch.setattr(ai_generator, "_generate_with_ai", lambda prompt, fallback, **kwargs: fallback)
 
     caption = ai_generator.generate_caption("Meo phoi do mua he cho nang ne #tiktok #xuhuong #foryou")
@@ -34,11 +48,13 @@ def test_generate_caption_fallback_is_facebook_first(monkeypatch):
     assert "#tiktok" not in lowered
     assert "#xuhuong" not in lowered
     assert "#foryou" not in lowered
+    assert "#cachphoido" in lowered or "#meophoido" in lowered
     assert lines[0].endswith((".", "!", "?"))
     assert any(char in caption for char in "ăâêôơưđáàảãạéèẻẽẹíìỉĩịóòỏõọúùủũụýỳỷỹỵ")
 
 
 def test_generate_caption_falls_back_when_ai_returns_vietnamese_without_diacritics(monkeypatch):
+    stub_trend_context(monkeypatch)
     monkeypatch.setattr(
         ai_generator,
         "_generate_with_ai",
@@ -52,6 +68,7 @@ def test_generate_caption_falls_back_when_ai_returns_vietnamese_without_diacriti
 
 
 def test_generate_caption_creates_plausible_copy_when_original_caption_is_empty(monkeypatch):
+    stub_trend_context(monkeypatch)
     monkeypatch.setattr(ai_generator, "_generate_with_ai", lambda prompt, fallback, **kwargs: fallback)
 
     caption = ai_generator.generate_caption("")
@@ -60,3 +77,57 @@ def test_generate_caption_creates_plausible_copy_when_original_caption_is_empty(
     assert len(lines) >= 4
     assert "Lướt tới đây mà bỏ qua thì hơi phí đó nha." in caption
     assert any(line.startswith("#") for line in lines)
+
+
+def test_generate_caption_prompt_requests_search_intent_hashtags(monkeypatch):
+    stub_trend_context(monkeypatch)
+    captured = {}
+
+    def fake_generate(prompt, fallback, **kwargs):
+        captured["prompt"] = prompt
+        return fallback
+
+    monkeypatch.setattr(ai_generator, "_generate_with_ai", fake_generate)
+
+    ai_generator.generate_caption("Review serum dưỡng ẩm cho da khô")
+
+    assert "match common search intent around the topic" in captured["prompt"]
+    assert "real viewers would search for this topic" in captured["prompt"]
+
+
+def test_generate_caption_prompt_includes_external_trend_hints(monkeypatch):
+    captured = {}
+    stub_trend_context(
+        monkeypatch,
+        queries=["review serum cap am", "serum cap am cho da kho"],
+        hashtags=["reviewserumcapam", "serumcapamdakho"],
+        sources=["serpapi_google_trends"],
+    )
+
+    def fake_generate(prompt, fallback, **kwargs):
+        captured["prompt"] = prompt
+        return fallback
+
+    monkeypatch.setattr(ai_generator, "_generate_with_ai", fake_generate)
+
+    ai_generator.generate_caption("Review serum duong am cho da kho")
+
+    assert "External trend/search hints:" in captured["prompt"]
+    assert "review serum cap am" in captured["prompt"]
+    assert "serpapi_google_trends" in captured["prompt"]
+
+
+def test_generate_caption_fallback_prefers_external_trend_hashtags(monkeypatch):
+    stub_trend_context(
+        monkeypatch,
+        queries=["review serum cap am", "serum cap am da kho"],
+        hashtags=["reviewserumcapam", "serumcapamdakho"],
+        sources=["google_suggest"],
+    )
+    monkeypatch.setattr(ai_generator, "_generate_with_ai", lambda prompt, fallback, **kwargs: fallback)
+
+    caption = ai_generator.generate_caption("Review serum duong am cho da kho #tiktok")
+    lowered = caption.lower()
+
+    assert "#reviewserumcapam" in lowered
+    assert "#serumcapamdakho" in lowered

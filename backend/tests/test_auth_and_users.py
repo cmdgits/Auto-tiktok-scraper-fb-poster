@@ -69,6 +69,36 @@ def test_admin_can_create_list_and_reset_user(client, auth_headers):
     assert operator_login.json()["user"]["must_change_password"] is True
 
 
+def test_admin_can_set_specific_password_when_resetting_user(client, auth_headers):
+    create_response = client.post(
+        "/users/",
+        headers=auth_headers,
+        json={
+            "username": "operator_custom_pass",
+            "display_name": "Nhân viên đặt pass tay",
+            "password": "Operator123",
+            "role": "operator",
+        },
+    )
+    assert create_response.status_code == 200
+    created_user = create_response.json()["user"]
+
+    reset_response = client.post(
+        f"/users/{created_user['id']}/reset-password",
+        headers=auth_headers,
+        json={"new_password": "ResetPass456"},
+    )
+    assert reset_response.status_code == 200
+    assert reset_response.json()["temporary_password"] is None
+
+    operator_login = client.post(
+        "/auth/login",
+        json={"username": "operator_custom_pass", "password": "ResetPass456"},
+    )
+    assert operator_login.status_code == 200
+    assert operator_login.json()["user"]["must_change_password"] is True
+
+
 def test_admin_can_delete_user(client, auth_headers):
     create_response = client.post(
         "/users/",

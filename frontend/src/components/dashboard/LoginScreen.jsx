@@ -1,9 +1,12 @@
-﻿import {
+import { useState } from 'react';
+import {
   KeyRound,
   Share2,
   ShieldCheck,
   Terminal,
   Zap,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 import { cx, StatusPill } from './ui';
@@ -27,10 +30,12 @@ export default function LoginScreen({
   loginPass,
   setLoginPass,
   loginError,
+  isLoggingIn,
   handleLogin,
   classes,
 }) {
   const { FIELD_CLASS, BUTTON_PRIMARY } = classes;
+  const [showPassword, setShowPassword] = useState(false);
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[var(--shell-bg)] text-slate-900">
@@ -73,6 +78,7 @@ export default function LoginScreen({
                   name="username"
                   autoComplete="username"
                   required
+                  disabled={isLoggingIn}
                   className={FIELD_CLASS}
                   placeholder="Nhập tên đăng nhập"
                   value={loginUser}
@@ -81,20 +87,32 @@ export default function LoginScreen({
               </label>
               <label className="block space-y-2">
                 <span className="text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Mật khẩu</span>
-                <input
-                  type="password"
-                  name="password"
-                  autoComplete="current-password"
-                  spellCheck="false"
-                  required
-                  className={FIELD_CLASS}
-                  placeholder="••••••••"
-                  value={loginPass}
-                  onChange={(event) => setLoginPass(event.target.value)}
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    name="password"
+                    autoComplete="current-password"
+                    spellCheck="false"
+                    required
+                    disabled={isLoggingIn}
+                    className={cx(FIELD_CLASS, 'pr-10')}
+                    placeholder="••••••••"
+                    value={loginPass}
+                    onChange={(event) => setLoginPass(event.target.value)}
+                  />
+                  <button
+                    type="button"
+                    disabled={isLoggingIn}
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-[var(--text-muted)] hover:text-slate-600 focus:outline-none"
+                  >
+                    {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  </button>
+                </div>
               </label>
+              {isLoggingIn ? <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-700">Đang xác thực tài khoản...</div> : null}
               {loginError ? <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{loginError}</div> : null}
-              <button type="submit" className={cx(BUTTON_PRIMARY, 'w-full')}>
+              <button type="submit" disabled={isLoggingIn} className={cx(BUTTON_PRIMARY, 'w-full')}>
                 <KeyRound className="h-4 w-4" />
                 Đăng nhập vào hệ thống
               </button>

@@ -42,6 +42,30 @@ RUNTIME_SETTING_SPECS = {
         "is_secret": True,
         "requires_restart": False,
     },
+    "SERPAPI_API_KEY": {
+        "label": "SERPAPI_API_KEY",
+        "description": "Khoa SerpApi de lay related queries tu Google Trends",
+        "is_secret": True,
+        "requires_restart": False,
+    },
+    "TREND_GEO": {
+        "label": "TREND_GEO",
+        "description": "Ma quoc gia Google Trends, vi du VN hoac US",
+        "is_secret": False,
+        "requires_restart": False,
+    },
+    "TREND_SEARCH_ENDPOINT": {
+        "label": "TREND_SEARCH_ENDPOINT",
+        "description": "API search/trend ngoai tra ve related queries hoac hashtag",
+        "is_secret": False,
+        "requires_restart": False,
+    },
+    "TREND_SEARCH_API_KEY": {
+        "label": "TREND_SEARCH_API_KEY",
+        "description": "Khoa truy cap cho search service ngoai neu can",
+        "is_secret": True,
+        "requires_restart": False,
+    },
     "GOOGLE_SERVICE_ACCOUNT_EMAIL": {
         "label": "Google service account email",
         "description": "Email service account duoc share quyen sua Google Sheet san pham",
