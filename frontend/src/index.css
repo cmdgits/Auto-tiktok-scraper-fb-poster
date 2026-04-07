@@ -116,6 +116,16 @@
     transition: background-color 9999s ease-in-out 0s;
   }
 
+  input.field-input[type='number']::-webkit-outer-spin-button,
+  input.field-input[type='number']::-webkit-inner-spin-button {
+    margin: 0;
+    -webkit-appearance: none;
+  }
+
+  input.field-input[type='number'] {
+    -moz-appearance: textfield;
+  }
+
   .btn-primary {
     background: linear-gradient(180deg, #1482f3 0%, #0071e3 100%);
     color: #ffffff;

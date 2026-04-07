@@ -36,6 +36,7 @@ class CampaignCreate(BaseModel):
 
 class CampaignScheduleUpdate(BaseModel):
     schedule_start_at: datetime | None = None
+    schedule_interval: int | None = Field(default=None, ge=0)
 
 
 class VideoCaptionUpdate(BaseModel):
@@ -403,6 +404,8 @@ def get_campaigns(db: Session = Depends(get_db)):
 def update_campaign_schedule(campaign_id: str, payload: CampaignScheduleUpdate, db: Session = Depends(get_db)):
     campaign = get_campaign_or_404(db, campaign_id)
     campaign.schedule_start_at = normalize_utc_datetime(payload.schedule_start_at)
+    if payload.schedule_interval is not None:
+        campaign.schedule_interval = payload.schedule_interval
     rescheduled_videos, first_publish_time = apply_campaign_schedule(db, campaign)
     db.commit()
     db.refresh(campaign)
@@ -410,12 +413,13 @@ def update_campaign_schedule(campaign_id: str, payload: CampaignScheduleUpdate, 
     record_event(
         "campaign",
         "info",
-        "Đã cập nhật mốc bắt đầu cho chiến dịch.",
+        "Đã cập nhật lịch đăng cho chiến dịch.",
         db=db,
         details={
             "campaign_id": str(campaign.id),
             "campaign_name": campaign.name,
             "schedule_start_at": serialize_datetime(campaign.schedule_start_at),
+            "schedule_interval": campaign.schedule_interval,
             "rescheduled_videos": len(rescheduled_videos),
             "first_publish_time": serialize_datetime(first_publish_time),
         },
@@ -425,12 +429,14 @@ def update_campaign_schedule(campaign_id: str, payload: CampaignScheduleUpdate, 
     summary_map = build_campaign_summary_map(db)
     if campaign.schedule_start_at:
         message = (
-            f"Đã cập nhật ngày giờ bắt đầu cho chiến dịch '{campaign.name}'"
+            f"Đã cập nhật lịch đăng cho chiến dịch '{campaign.name}'"
+            f" với khoảng cách {campaign.schedule_interval or 0} phút/lần"
             f" và xếp lại {len(rescheduled_videos)} video chờ."
         )
     else:
         message = (
-            f"Đã bỏ mốc bắt đầu cố định cho chiến dịch '{campaign.name}'"
+            f"Đã cập nhật lịch đăng cho chiến dịch '{campaign.name}'"
+            f" theo hàng chờ hiện tại với khoảng cách {campaign.schedule_interval or 0} phút/lần"
             f" và xếp lại {len(rescheduled_videos)} video chờ."
         )
 

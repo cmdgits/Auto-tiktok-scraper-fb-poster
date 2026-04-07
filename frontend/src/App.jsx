@@ -618,6 +618,7 @@ function App() {
   });
   const [fbPages, setFbPages] = useState([]);
   const [campaignScheduleDrafts, setCampaignScheduleDrafts] = useState({});
+  const [campaignIntervalDrafts, setCampaignIntervalDrafts] = useState({});
   const [fbForm, setFbForm] = useState({ page_id: '', page_name: '', long_lived_access_token: '' });
   const [fbImportToken, setFbImportToken] = useState('');
   const [fbSaveFeedback, setFbSaveFeedback] = useState(null);
@@ -1243,6 +1244,7 @@ function App() {
       showNotice('error', 'Bạn đang nhập ngược 2 ô. "Mã trang" phải là dãy số Page ID, còn "Tên trang" là tên hiển thị fanpage.');
       return;
     }
+
     const confirmed = await confirmAction({
       title: existingPage ? 'Cập nhật cấu hình fanpage' : 'Lưu cấu hình fanpage',
       description: existingPage
@@ -1947,27 +1949,41 @@ function App() {
     setCampaignScheduleDrafts((current) => ({ ...current, [campaignId]: value }));
   };
 
+  const handleCampaignIntervalDraftChange = (campaignId, value) => {
+    setCampaignIntervalDrafts((current) => ({ ...current, [campaignId]: value }));
+  };
+
   const handleCampaignScheduleReset = (campaign) => {
     setCampaignScheduleDrafts((current) => ({
       ...current,
       [campaign.id]: formatUtcIsoForDateTimeLocal(campaign.schedule_start_at),
     }));
+    setCampaignIntervalDrafts((current) => ({
+      ...current,
+      [campaign.id]: String(campaign.schedule_interval || 0),
+    }));
   };
 
   const handleCampaignScheduleSave = async (campaign) => {
-    const draftValue = campaignScheduleDrafts[campaign.id] || '';
+    const draftValue = campaignScheduleDrafts[campaign.id] ?? formatUtcIsoForDateTimeLocal(campaign.schedule_start_at) ?? '';
+    const intervalDraftValue = campaignIntervalDrafts[campaign.id] ?? String(campaign.schedule_interval || 0);
     const scheduleStartAt = normalizeLocalDateTimeToUtcIso(draftValue);
+    const scheduleInterval = intervalDraftValue === '' ? 0 : Number.parseInt(intervalDraftValue, 10);
     if (draftValue && !scheduleStartAt) {
       showNotice('error', 'Ngày giờ bắt đầu của chiến dịch chưa hợp lệ.');
       return;
     }
+    if (!Number.isInteger(scheduleInterval) || scheduleInterval < 0) {
+      showNotice('error', 'Khoảng cách đăng của chiến dịch chưa hợp lệ.');
+      return;
+    }
 
     const confirmed = await confirmAction({
-      title: 'Cập nhật lịch bắt đầu campaign',
+      title: 'Cập nhật lịch đăng campaign',
       description: draftValue
-        ? `Hệ thống sẽ đổi ngày giờ bắt đầu của "${campaign.name}" và xếp lại các video chưa đăng theo lịch mới.`
-        : `Hệ thống sẽ bỏ mốc bắt đầu cố định của "${campaign.name}" và xếp lại các video chưa đăng theo hàng chờ hiện tại.`,
-      confirmLabel: 'Lưu lịch mới',
+        ? `Hệ thống sẽ đổi ngày giờ bắt đầu và khoảng cách ${scheduleInterval} phút/lần của "${campaign.name}", sau đó xếp lại các video chưa đăng theo lịch mới.`
+        : `Hệ thống sẽ bỏ mốc bắt đầu cố định và áp dụng khoảng cách ${scheduleInterval} phút/lần cho "${campaign.name}", sau đó xếp lại các video chưa đăng theo hàng chờ hiện tại.`,
+      confirmLabel: 'Lưu lịch đăng',
       tone: 'sky',
     });
     if (!confirmed) return;
@@ -1977,7 +1993,7 @@ function App() {
       () => requestJson(`${API_URL}/campaigns/${campaign.id}/schedule`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ schedule_start_at: scheduleStartAt }),
+        body: JSON.stringify({ schedule_start_at: scheduleStartAt, schedule_interval: scheduleInterval }),
       }),
       { showSuccessNotice: false },
     );
@@ -1985,6 +2001,10 @@ function App() {
       setCampaignScheduleDrafts((current) => ({
         ...current,
         [campaign.id]: formatUtcIsoForDateTimeLocal(payload.campaign.schedule_start_at),
+      }));
+      setCampaignIntervalDrafts((current) => ({
+        ...current,
+        [campaign.id]: String(payload.campaign.schedule_interval || 0),
       }));
     }
     if (payload) {
@@ -1995,7 +2015,7 @@ function App() {
         'success',
         firstPublishLabel
           ? `${payload.message} Video đầu tiên hiện được xếp lúc ${firstPublishLabel}.`
-          : (payload.message || 'Đã cập nhật lịch bắt đầu cho chiến dịch.'),
+          : (payload.message || 'Đã cập nhật lịch đăng cho chiến dịch.'),
       );
     }
   };
@@ -2281,6 +2301,7 @@ function App() {
         formData,
         fbPages,
         campaignScheduleDrafts,
+        campaignIntervalDrafts,
         actionState,
         campaignSourceFilter,
         campaigns,
@@ -2296,6 +2317,7 @@ function App() {
         toggleExpandedItem,
         handleCampaignAction,
         handleCampaignScheduleDraftChange,
+        handleCampaignIntervalDraftChange,
         handleCampaignScheduleReset,
         handleCampaignScheduleSave,
       }}

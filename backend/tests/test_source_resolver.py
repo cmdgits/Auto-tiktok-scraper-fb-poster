@@ -664,6 +664,67 @@ def test_update_campaign_schedule_reschedules_waiting_videos(client, auth_header
     assert videos[1].publish_time == datetime(2026, 4, 1, 1, 45, 0)
 
 
+def test_update_campaign_schedule_updates_interval_and_reschedules_waiting_videos(client, auth_headers, db_session, monkeypatch):
+    fixed_now = datetime(2026, 4, 1, 0, 0, 0)
+    monkeypatch.setattr("app.services.campaign_jobs.utc_now", lambda: fixed_now)
+
+    campaign = Campaign(
+        name="Editable interval campaign",
+        source_url="https://www.tiktok.com/@demo",
+        source_platform="tiktok",
+        source_kind="tiktok_profile",
+        status=CampaignStatus.active,
+        schedule_interval=15,
+        schedule_start_at=datetime(2026, 4, 1, 8, 0, 0),
+    )
+    db_session.add(campaign)
+    db_session.commit()
+    db_session.refresh(campaign)
+
+    db_session.add_all(
+        [
+            Video(
+                campaign_id=campaign.id,
+                original_id="video-a",
+                source_video_url="https://www.tiktok.com/@demo/video/video-a",
+                original_caption="Caption A",
+                status=VideoStatus.ready,
+                publish_time=datetime(2026, 4, 1, 8, 0, 0),
+            ),
+            Video(
+                campaign_id=campaign.id,
+                original_id="video-b",
+                source_video_url="https://www.tiktok.com/@demo/video/video-b",
+                original_caption="Caption B",
+                status=VideoStatus.pending,
+                publish_time=datetime(2026, 4, 1, 8, 15, 0),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = client.patch(
+        f"/campaigns/{campaign.id}/schedule",
+        headers=auth_headers,
+        json={
+            "schedule_start_at": "2026-04-01T08:30:00+07:00",
+            "schedule_interval": 45,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["campaign"]["schedule_start_at"] == "2026-04-01T01:30:00"
+    assert payload["campaign"]["schedule_interval"] == 45
+    assert payload["first_publish_time"] == "2026-04-01T01:30:00"
+
+    db_session.refresh(campaign)
+    assert campaign.schedule_interval == 45
+    videos = db_session.query(Video).filter(Video.campaign_id == campaign.id).order_by(Video.publish_time.asc()).all()
+    assert videos[0].publish_time == datetime(2026, 4, 1, 1, 30, 0)
+    assert videos[1].publish_time == datetime(2026, 4, 1, 2, 15, 0)
+
+
 def test_regenerate_caption_uses_video_context_when_original_caption_is_empty(client, auth_headers, db_session, monkeypatch):
     page = FacebookPage(
         page_id="page-caption-empty",

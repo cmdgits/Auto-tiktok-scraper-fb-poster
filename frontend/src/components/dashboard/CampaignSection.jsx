@@ -37,6 +37,7 @@ export default function CampaignSection({
     formData,
     fbPages,
     campaignScheduleDrafts,
+    campaignIntervalDrafts,
     actionState,
     campaignSourceFilter,
     campaigns,
@@ -52,6 +53,7 @@ export default function CampaignSection({
     toggleExpandedItem,
     handleCampaignAction,
     handleCampaignScheduleDraftChange,
+    handleCampaignIntervalDraftChange,
     handleCampaignScheduleReset,
     handleCampaignScheduleSave,
   } = actions;
@@ -236,6 +238,8 @@ export default function CampaignSection({
               const syncMeta = getSyncStateMeta(campaign.last_sync_status);
               const isExpanded = !!expandedItems[`campaign:${campaign.id}`];
               const sourcePlatformMeta = getSourcePlatformMeta(campaign.source_platform);
+              const scheduleDraftValue = campaignScheduleDrafts[campaign.id] ?? formatUtcIsoForDateTimeLocal(campaign.schedule_start_at);
+              const intervalDraftValue = campaignIntervalDrafts[campaign.id] ?? String(campaign.schedule_interval || 0);
               return (
                 <article key={campaign.id} className={CARD_CLASS}>
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
@@ -306,42 +310,60 @@ export default function CampaignSection({
                       <div className={cx('mt-4', MUTED_CARD_CLASS)}>
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div>
-                            <div className="text-[11px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Chỉnh lịch bắt đầu</div>
+                            <div className="text-[11px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Chỉnh lịch đăng</div>
                             <div className="mt-2 text-sm leading-7 text-[var(--text-soft)]">
-                              Đổi ngày giờ bắt đầu cho campaign đã tạo. Hệ thống sẽ xếp lại các video chưa đăng của campaign này theo mốc mới.
+                              Đổi ngày giờ bắt đầu và khoảng cách đăng cho campaign đã tạo. Hệ thống sẽ xếp lại các video chưa đăng của campaign này theo lịch mới.
                             </div>
                           </div>
                           <StatusPill tone="sky">Chỉ áp dụng video chưa đăng</StatusPill>
                         </div>
-                        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto]">
+                        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(13rem,0.8fr)]">
                           <label className="space-y-2">
                             <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Ngày giờ bắt đầu mới</span>
                             <input
                               type="datetime-local"
                               step="60"
                               className={FIELD_CLASS}
-                              value={campaignScheduleDrafts[campaign.id] ?? formatUtcIsoForDateTimeLocal(campaign.schedule_start_at)}
+                              value={scheduleDraftValue}
                               onChange={(event) => handleCampaignScheduleDraftChange(campaign.id, event.target.value)}
                             />
                           </label>
+                          <label className="space-y-2">
+                            <span className="text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">Khoảng cách đăng</span>
+                            <div className="relative">
+                              <input
+                                type="number"
+                                min="0"
+                                inputMode="numeric"
+                                className={cx(FIELD_CLASS, 'pr-14 [appearance:textfield]')}
+                                value={intervalDraftValue}
+                                onChange={(event) => handleCampaignIntervalDraftChange(campaign.id, event.target.value)}
+                              />
+                              <span className="pointer-events-none absolute inset-y-0 right-4 inline-flex items-center text-xs font-medium uppercase tracking-[0.2em] text-[var(--text-muted)]">
+                                Phút
+                              </span>
+                            </div>
+                          </label>
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center justify-end gap-3">
                           <button
                             type="button"
-                            className={cx(BUTTON_GHOST, 'self-end')}
+                            className={BUTTON_GHOST}
                             onClick={() => handleCampaignScheduleReset(campaign)}
                           >
                             Khôi phục
                           </button>
                           <button
                             type="button"
-                            className={cx(BUTTON_SECONDARY, 'self-end')}
+                            className={BUTTON_SECONDARY}
                             onClick={() => handleCampaignScheduleSave(campaign)}
                             disabled={actionState[`campaign-${campaign.id}-schedule`]}
                           >
-                            {actionState[`campaign-${campaign.id}-schedule`] ? 'Đang lưu...' : 'Lưu lịch bắt đầu'}
+                            {actionState[`campaign-${campaign.id}-schedule`] ? 'Đang lưu...' : 'Lưu lịch đăng'}
                           </button>
                         </div>
                         <div className="mt-3 text-xs leading-5 text-[var(--text-muted)]">
-                          Để trống ô này rồi bấm lưu nếu muốn bỏ mốc bắt đầu cố định và quay về xếp lịch theo hàng chờ hiện tại của fanpage.
+                          Để trống ô ngày giờ rồi bấm lưu nếu muốn bỏ mốc bắt đầu cố định và quay về xếp lịch theo hàng chờ hiện tại của fanpage.
                         </div>
                       </div>
                       {campaign.last_sync_error ? <div className="mt-4 rounded-[22px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm leading-7 text-rose-700">{campaign.last_sync_error}</div> : null}
