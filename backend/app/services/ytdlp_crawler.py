@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from contextvars import ContextVar
 from dataclasses import dataclass
 import os
 from pathlib import Path
 import tempfile
+from typing import Any
 import uuid
 from urllib.parse import parse_qsl, urlsplit
 
@@ -13,6 +15,10 @@ from app.core.config import settings
 from app.services.observability import log_structured
 
 DOWNLOAD_DIR = settings.DOWNLOAD_DIR
+_LAST_METADATA_DIAGNOSTICS: ContextVar[tuple[str, ...]] = ContextVar(
+    "last_metadata_diagnostics",
+    default=(),
+)
 
 
 @dataclass(frozen=True)
@@ -26,22 +32,99 @@ class NormalizedMediaEntry:
     source_kind: str
 
 
+class _YTDLPDiagnosticCollector:
+    def __init__(self) -> None:
+        self._messages: list[str] = []
+
+    @property
+    def messages(self) -> list[str]:
+        return list(self._messages)
+
+    def debug(self, message: Any) -> None:
+        normalized = self._normalize(message)
+        if normalized.startswith("WARNING:") or normalized.startswith("ERROR:"):
+            self._remember(normalized)
+
+    def warning(self, message: Any) -> None:
+        self._remember(f"WARNING: {self._normalize(message)}")
+
+    def error(self, message: Any) -> None:
+        self._remember(f"ERROR: {self._normalize(message)}")
+
+    def _remember(self, message: str) -> None:
+        normalized = self._normalize(message)
+        if normalized and normalized not in self._messages:
+            self._messages.append(normalized)
+
+    @staticmethod
+    def _normalize(message: Any) -> str:
+        return str(message or "").strip()
+
+
+def _get_last_metadata_diagnostics() -> list[str]:
+    return list(_LAST_METADATA_DIAGNOSTICS.get())
+
+
+def _set_last_metadata_diagnostics(messages: list[str]) -> None:
+    _LAST_METADATA_DIAGNOSTICS.set(tuple(messages))
+
+
+def _clean_diagnostic_message(message: str) -> str:
+    normalized = (message or "").strip()
+    if normalized.startswith("WARNING:"):
+        return normalized[len("WARNING:") :].strip()
+    if normalized.startswith("ERROR:"):
+        return normalized[len("ERROR:") :].strip()
+    return normalized
+
+
+def _build_empty_source_error(source_platform: str, source_kind: str, diagnostics: list[str]) -> str | None:
+    cleaned = [_clean_diagnostic_message(message) for message in diagnostics if _clean_diagnostic_message(message)]
+    combined = " ".join(cleaned).casefold()
+
+    if source_platform == "tiktok" and source_kind == "tiktok_profile":
+        if "private or has embedding disabled" in combined and "secondary user id" in combined:
+            return (
+                "TikTok không cho phép đọc danh sách video từ hồ sơ này vì tài khoản đang riêng tư "
+                "hoặc đã tắt embedding; yt-dlp cũng không lấy được secondary user ID. "
+                "Hãy dùng link video TikTok cụ thể thay vì link trang hồ sơ."
+            )
+        if "private or has embedding disabled" in combined:
+            return (
+                "TikTok không cho phép đọc danh sách video từ hồ sơ này vì tài khoản đang riêng tư "
+                "hoặc đã tắt embedding. Hãy dùng link video TikTok cụ thể thay vì link trang hồ sơ."
+            )
+        if "secondary user id" in combined:
+            return (
+                "Không thể đọc danh sách video từ hồ sơ TikTok này vì yt-dlp không lấy được "
+                "secondary user ID của tài khoản. Hãy dùng link video TikTok cụ thể thay vì link trang hồ sơ."
+            )
+
+    return None
+
+
 def extract_metadata(url: str):
+    collector = _YTDLPDiagnosticCollector()
     ydl_opts = {
         "skip_download": True,
         "quiet": True,
         "ignoreerrors": True,
         "extract_flat": False,
+        "logger": collector,
     }
     try:
+        _set_last_metadata_diagnostics([])
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            return ydl.extract_info(url, download=False)
+            result = ydl.extract_info(url, download=False)
+        _set_last_metadata_diagnostics(collector.messages)
+        return result
     except Exception as exc:
+        _set_last_metadata_diagnostics(collector.messages)
         log_structured(
             "crawler",
             "error",
             "Không thể lấy metadata nguồn video.",
-            details={"url": url, "error": str(exc)},
+            details={"url": url, "error": str(exc), "diagnostics": collector.messages},
         )
         raise
 
@@ -170,6 +253,7 @@ def _normalize_entry(entry: dict, source_platform: str, source_kind_hint: str) -
 
 def extract_source_entries(url: str, source_platform: str, source_kind: str) -> list[NormalizedMediaEntry]:
     raw_info = extract_metadata(url)
+    diagnostics = _get_last_metadata_diagnostics()
     normalized_entries: list[NormalizedMediaEntry] = []
     seen_ids: set[str] = set()
 
@@ -186,6 +270,22 @@ def extract_source_entries(url: str, source_platform: str, source_kind: str) -> 
         normalized = _normalize_entry(raw_info, source_platform, source_kind)
         if normalized:
             normalized_entries.append(normalized)
+
+    if not normalized_entries and diagnostics:
+        diagnostic_error = _build_empty_source_error(source_platform, source_kind, diagnostics)
+        if diagnostic_error:
+            log_structured(
+                "crawler",
+                "warning",
+                "Nguon video khong tra ve entry hop le kem chan doan yt-dlp.",
+                details={
+                    "url": url,
+                    "source_platform": source_platform,
+                    "source_kind": source_kind,
+                    "diagnostics": diagnostics,
+                },
+            )
+            raise ValueError(diagnostic_error)
 
     return normalized_entries
 

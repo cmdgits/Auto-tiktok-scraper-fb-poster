@@ -335,6 +335,33 @@ def test_extract_metadata_ignores_playlist_entry_errors(monkeypatch):
     assert captured["download"] is False
 
 
+def test_extract_source_entries_surfaces_tiktok_profile_diagnostics(monkeypatch):
+    class FakeYDL:
+        def __init__(self, opts):
+            self._logger = opts["logger"]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def extract_info(self, _url, download=False):
+            assert download is False
+            self._logger.warning("This user's account is either private or has embedding disabled")
+            self._logger.error("phimnganxutrung: Unable to extract secondary user ID")
+            return None
+
+    monkeypatch.setattr("app.services.ytdlp_crawler.yt_dlp.YoutubeDL", FakeYDL)
+
+    with pytest.raises(ValueError, match="embedding"):
+        extract_source_entries(
+            "https://www.tiktok.com/@phimnganxutrung",
+            source_platform="tiktok",
+            source_kind="tiktok_profile",
+        )
+
+
 def test_sync_campaign_content_uses_normalized_youtube_entries(monkeypatch, db_session):
     campaign = Campaign(
         name="YouTube channel campaign",
