@@ -1,11 +1,12 @@
 import pytest
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from app.core.time import utc_now
 from app.models.models import Campaign, CampaignStatus, FacebookPage, TaskQueue, Video, VideoStatus
 from app.services.campaign_jobs import sync_campaign_content
 from app.services.source_resolver import SourceResolutionError, resolve_content_source
-from app.services.ytdlp_crawler import extract_source_entries
+from app.services.ytdlp_crawler import download_video, extract_source_entries
 
 
 @pytest.mark.parametrize(
@@ -360,6 +361,43 @@ def test_extract_source_entries_surfaces_tiktok_profile_diagnostics(monkeypatch)
             source_platform="tiktok",
             source_kind="tiktok_profile",
         )
+
+
+def test_download_video_prefers_fullhd_stream_selection_and_mp4_output(monkeypatch, tmp_path):
+    captured = {}
+
+    class FakeYDL:
+        def __init__(self, opts):
+            captured["opts"] = opts
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def download(self, urls):
+            captured["urls"] = urls
+            outtmpl = captured["opts"]["outtmpl"]
+            Path(outtmpl.replace("%(ext)s", "webm")).write_bytes(b"webm")
+            Path(outtmpl.replace("%(ext)s", "mp4")).write_bytes(b"mp4")
+
+    monkeypatch.setattr("app.services.ytdlp_crawler.DOWNLOAD_DIR", str(tmp_path))
+    monkeypatch.setattr("app.services.ytdlp_crawler.yt_dlp.YoutubeDL", FakeYDL)
+
+    out_path, video_id = download_video("https://www.youtube.com/watch?v=abc123", "youtube")
+
+    assert video_id is not None
+    assert out_path is not None
+    assert Path(out_path).exists()
+    assert Path(out_path).suffix == ".mp4"
+    assert captured["urls"] == ["https://www.youtube.com/watch?v=abc123"]
+    assert "bestvideo*" in captured["opts"]["format"]
+    assert "+bestaudio" in captured["opts"]["format"]
+    assert "[height=1080]" in captured["opts"]["format"]
+    assert "[width=1080]" in captured["opts"]["format"]
+    assert captured["opts"]["merge_output_format"] == "mp4"
+    assert captured["opts"]["noplaylist"] is True
 
 
 def test_sync_campaign_content_uses_normalized_youtube_entries(monkeypatch, db_session):

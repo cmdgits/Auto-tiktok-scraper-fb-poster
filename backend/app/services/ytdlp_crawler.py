@@ -15,6 +15,8 @@ from app.core.config import settings
 from app.services.observability import log_structured
 
 DOWNLOAD_DIR = settings.DOWNLOAD_DIR
+FULLHD_EDGE_SIZE = 1080
+DOWNLOADABLE_VIDEO_EXTENSIONS = {".mp4", ".m4v", ".mov", ".mkv", ".webm"}
 _LAST_METADATA_DIAGNOSTICS: ContextVar[tuple[str, ...]] = ContextVar(
     "last_metadata_diagnostics",
     default=(),
@@ -101,6 +103,28 @@ def _build_empty_source_error(source_platform: str, source_kind: str, diagnostic
             )
 
     return None
+
+
+def _build_fullhd_download_format() -> str:
+    audio_selector = "bestaudio[ext=m4a]/bestaudio"
+    return "/".join(
+        [
+            f"bestvideo*[height={FULLHD_EDGE_SIZE}][ext=mp4][vcodec^=avc]+{audio_selector}",
+            f"bestvideo*[width={FULLHD_EDGE_SIZE}][ext=mp4][vcodec^=avc]+{audio_selector}",
+            f"bestvideo*[height={FULLHD_EDGE_SIZE}][ext=mp4]+{audio_selector}",
+            f"bestvideo*[width={FULLHD_EDGE_SIZE}][ext=mp4]+{audio_selector}",
+            f"bestvideo*[height<={FULLHD_EDGE_SIZE}][ext=mp4][vcodec^=avc]+{audio_selector}",
+            f"bestvideo*[width<={FULLHD_EDGE_SIZE}][ext=mp4][vcodec^=avc]+{audio_selector}",
+            f"bestvideo*[height<={FULLHD_EDGE_SIZE}][ext=mp4]+{audio_selector}",
+            f"bestvideo*[width<={FULLHD_EDGE_SIZE}][ext=mp4]+{audio_selector}",
+            f"best[height<={FULLHD_EDGE_SIZE}][ext=mp4]",
+            f"best[width<={FULLHD_EDGE_SIZE}][ext=mp4]",
+            "bestvideo*+bestaudio/best",
+        ]
+    )
+
+
+FULLHD_DOWNLOAD_FORMAT = _build_fullhd_download_format()
 
 
 def extract_metadata(url: str):
@@ -290,29 +314,54 @@ def extract_source_entries(url: str, source_platform: str, source_kind: str) -> 
     return normalized_entries
 
 
+def _resolve_downloaded_video_path(file_stem: str) -> str | None:
+    candidates = [
+        path
+        for path in Path(DOWNLOAD_DIR).glob(f"{file_stem}.*")
+        if path.is_file() and path.suffix.lower() in DOWNLOADABLE_VIDEO_EXTENSIONS
+    ]
+    if not candidates:
+        return None
+
+    mp4_candidates = [path for path in candidates if path.suffix.lower() == ".mp4"]
+    if mp4_candidates:
+        return str(max(mp4_candidates, key=lambda path: path.stat().st_mtime))
+    return str(max(candidates, key=lambda path: path.stat().st_mtime))
+
+
 def download_video(url: str, filename_prefix: str = "video"):
     Path(DOWNLOAD_DIR).mkdir(parents=True, exist_ok=True)
     video_id = str(uuid.uuid4())
-    filename = f"{filename_prefix}_{video_id}.mp4"
-    out_path = os.path.join(DOWNLOAD_DIR, filename)
+    file_stem = f"{filename_prefix}_{video_id}"
+    outtmpl = os.path.join(DOWNLOAD_DIR, f"{file_stem}.%(ext)s")
 
     ydl_opts = {
-        "format": "best[vcodec^=h264]/best[vcodec^=avc]/best",
-        "outtmpl": out_path,
+        "format": FULLHD_DOWNLOAD_FORMAT,
+        "outtmpl": outtmpl,
         "quiet": True,
         "no_warnings": True,
+        "merge_output_format": "mp4",
+        "noplaylist": True,
     }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
-        return out_path, video_id
+        final_path = _resolve_downloaded_video_path(file_stem)
+        if not final_path:
+            raise FileNotFoundError("yt-dlp completed but no output video file was found.")
+        return final_path, video_id
     except Exception as exc:
         log_structured(
             "crawler",
             "error",
             "Không thể tải video từ nguồn.",
-            details={"url": url, "filename_prefix": filename_prefix, "error": str(exc)},
+            details={
+                "url": url,
+                "filename_prefix": filename_prefix,
+                "format": FULLHD_DOWNLOAD_FORMAT,
+                "error": str(exc),
+            },
         )
         return None, None
 
