@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Chính sách bảo mật của Hệ thống tự động mạng xã hội.">
+  <title>Chính sách Bảo mật - Hệ thống tự động mạng xã hội</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --shell-bg: #f4f6f8;
+      --panel-bg: #ffffff;
+      --panel-strong-bg: #fbfcfe;
+      --text-main: #0f172a;
+      --text-soft: #334155;
+      --text-muted: #526071;
+      --accent-blue: #0071e3;
+      --accent-blue-soft: rgba(0, 113, 227, 0.08);
+      --line-soft: rgba(15, 23, 42, 0.06);
+      --line-strong: rgba(15, 23, 42, 0.12);
+      --shadow-sm: 0 2px 8px rgba(15, 23, 42, 0.03);
+      --shadow-md: 0 12px 32px rgba(15, 23, 42, 0.04);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      background: var(--shell-bg);
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      color: var(--text-soft);
+      line-height: 1.625;
+      background: linear-gradient(180deg, #fbfcfd 0%, #f4f6f8 44%, #eef2f6 100%);
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Header */
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(255, 255, 255, 0.8);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--line-soft);
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .logo-container {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      text-decoration: none;
+      color: var(--text-main);
+    }
+
+    .logo-icon {
+      width: 2.25rem;
+      height: 2.25rem;
+      background: linear-gradient(135deg, #1482f3 0%, #0071e3 100%);
+      border-radius: 0.625rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 700;
+      font-size: 1.1rem;
+      box-shadow: 0 4px 10px rgba(0, 113, 227, 0.2);
+    }
+
+    .logo-text {
+      font-weight: 600;
+      font-size: 1.125rem;
+      letter-spacing: -0.02em;
+    }
+
+    .header-link {
+      text-decoration: none;
+      color: var(--accent-blue);
+      font-weight: 500;
+      font-size: 0.875rem;
+      padding: 0.5rem 1rem;
+      border-radius: 9999px;
+      border: 1px solid rgba(0, 113, 227, 0.15);
+      background: rgba(0, 113, 227, 0.03);
+      transition: all 0.2s ease;
+    }
+
+    .header-link:hover {
+      background: var(--accent-blue);
+      color: white;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0, 113, 227, 0.15);
+    }
+
+    /* Container layout */
+    .layout-wrapper {
+      max-width: 1200px;
+      margin: 3rem auto;
+      padding: 0 1.5rem;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 2.5rem;
+    }
+
+    @media (min-width: 768px) {
+      .layout-wrapper {
+        grid-template-columns: 280px 1fr;
+      }
+    }
+
+    /* Sidebar Navigation */
+    aside {
+      position: sticky;
+      top: 6rem;
+      height: fit-content;
+    }
+
+    .sidebar-nav {
+      background: var(--panel-bg);
+      border: 1px solid var(--line-soft);
+      border-radius: 1.25rem;
+      padding: 1.5rem 1.25rem;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .sidebar-title {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+      margin-bottom: 1rem;
+      font-weight: 600;
+    }
+
+    .sidebar-menu {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .sidebar-menu-link {
+      display: block;
+      color: var(--text-soft);
+      text-decoration: none;
+      font-size: 0.9rem;
+      padding: 0.625rem 0.875rem;
+      border-radius: 0.75rem;
+      transition: all 0.2s ease;
+      font-weight: 500;
+      border: 1px solid transparent;
+    }
+
+    .sidebar-menu-link:hover {
+      background: rgba(15, 23, 42, 0.03);
+      color: var(--text-main);
+    }
+
+    .sidebar-menu-link.active {
+      color: var(--accent-blue);
+      background: var(--accent-blue-soft);
+      border-color: rgba(0, 113, 227, 0.08);
+    }
+
+    /* Main Content */
+    main {
+      background: var(--panel-bg);
+      border: 1px solid var(--line-soft);
+      border-radius: 1.5rem;
+      padding: 2.5rem;
+      box-shadow: var(--shadow-md);
+    }
+
+    .content-header {
+      border-bottom: 1px solid var(--line-soft);
+      padding-bottom: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .meta-tag {
+      display: inline-flex;
+      align-items: center;
+      background: rgba(148, 163, 184, 0.1);
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      font-weight: 600;
+      margin-bottom: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    h1 {
+      font-size: 2rem;
+      color: var(--text-main);
+      letter-spacing: -0.025em;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+      line-height: 1.25;
+    }
+
+    .last-updated {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+    }
+
+    .section-block {
+      margin-bottom: 2.5rem;
+      scroll-margin-top: 6.5rem;
+    }
+
+    .section-block:last-child {
+      margin-bottom: 0;
+    }
+
+    h2 {
+      font-size: 1.25rem;
+      color: var(--text-main);
+      font-weight: 600;
+      margin-bottom: 1rem;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    h2::before {
+      content: "";
+      display: inline-block;
+      width: 4px;
+      height: 1.25rem;
+      background: var(--accent-blue);
+      border-radius: 2px;
+    }
+
+    p {
+      margin-bottom: 1rem;
+      color: var(--text-soft);
+      font-size: 0.975rem;
+    }
+
+    p:last-of-type {
+      margin-bottom: 0;
+    }
+
+    ul, ol {
+      margin-left: 1.5rem;
+      margin-bottom: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      font-size: 0.975rem;
+    }
+
+    li strong {
+      color: var(--text-main);
+    }
+
+    /* Alert Box */
+    .alert-box {
+      background: rgba(16, 185, 129, 0.04);
+      border: 1px solid rgba(16, 185, 129, 0.15);
+      border-radius: 0.875rem;
+      padding: 1.25rem;
+      margin-bottom: 1.5rem;
+      font-size: 0.925rem;
+    }
+
+    .alert-title {
+      font-weight: 600;
+      color: #047857;
+      margin-bottom: 0.375rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--line-soft);
+      padding: 2rem;
+      text-align: center;
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      margin-top: 5rem;
+      background: rgba(255, 255, 255, 0.5);
+    }
+
+    @media (max-width: 767px) {
+      header {
+        padding: 1rem;
+      }
+      main {
+        padding: 1.5rem;
+      }
+      h1 {
+        font-size: 1.625rem;
+      }
+      .logo-text {
+        font-size: 1rem;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <a href="/" class="logo-container">
+      <div class="logo-icon">S</div>
+      <span class="logo-text">Social Auto</span>
+    </a>
+    <a href="/" class="header-link">Đăng nhập</a>
+  </header>
+
+  <div class="layout-wrapper">
+    <aside>
+      <div class="sidebar-nav">
+        <div class="sidebar-title">Mục lục chính sách</div>
+        <ul class="sidebar-menu">
+          <li><a href="#thu-thap" class="sidebar-menu-link active">1. Thu thập thông tin</a></li>
+          <li><a href="#su-dung" class="sidebar-menu-link">2. Sử dụng thông tin</a></li>
+          <li><a href="#bao-ve" class="sidebar-menu-link">3. Bảo vệ và Lưu trữ</a></li>
+          <li><a href="#chia-se" class="sidebar-menu-link">4. Chia sẻ bên thứ ba</a></li>
+          <li><a href="#quyen-han" class="sidebar-menu-link">5. Quyền của người dùng</a></li>
+          <li><a href="#xoa-du-lieu" class="sidebar-menu-link">6. Yêu cầu xóa dữ liệu</a></li>
+          <li><a href="#thay-doi" class="sidebar-menu-link">7. Thay đổi chính sách</a></li>
+          <li><a href="#lien-he" class="sidebar-menu-link">8. Liên hệ</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main>
+      <div class="content-header">
+        <span class="meta-tag">Quyền riêng tư</span>
+        <h1>Chính sách Bảo mật</h1>
+        <div class="last-updated">Cập nhật lần cuối: Ngày 30 tháng 05 năm 2026</div>
+      </div>
+
+      <div class="alert-box">
+        <div class="alert-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          Cam kết bảo mật của chúng tôi
+        </div>
+        <strong>Hệ thống tự động mạng xã hội</strong> cam kết tôn trọng và bảo vệ quyền riêng tư cũng như dữ liệu cá nhân của tất cả người dùng nền tảng. Chính sách Bảo mật này mô tả cách chúng tôi xử lý thông tin được thu thập trong quá trình bạn sử dụng và tích hợp API mạng xã hội.
+      </div>
+
+      <section id="thu-thap" class="section-block">
+        <h2>1. Thông tin chúng tôi thu thập</h2>
+        <p>Chúng tôi chỉ thu thập các dữ liệu tối thiểu cần thiết để vận hành và thực hiện các tính năng điều phối nội dung tự động:</p>
+        <ul>
+          <li><strong>Thông tin tài khoản hệ thống:</strong> Tên đăng nhập, mật khẩu được băm (hash) bảo mật, và tên hiển thị do bạn cung cấp.</li>
+          <li><strong>Dữ liệu từ bên thứ ba (TikTok, Facebook):</strong>
+            <ul>
+              <li>TikTok: Liên kết video công khai, mô tả video dùng để lấy dữ liệu đồng bộ.</li>
+              <li>Facebook API: Tên trang Fanpage, ID trang, ảnh đại diện trang và mã truy cập trang (Page Access Token) dùng để đăng bài tự động và nhận sự kiện webhook bình luận/tin nhắn.</li>
+            </ul>
+          </li>
+          <li><strong>Nhật ký hệ thống (Logs):</strong> Lịch sử hoạt động của Worker, nhật ký đăng bài (ngày đăng, trạng thái thành công/thất bại) phục vụ công tác giám sát và khắc phục sự cố kỹ thuật.</li>
+        </ul>
+      </section>
+
+      <section id="su-dung" class="section-block">
+        <h2>2. Cách chúng tôi sử dụng thông tin</h2>
+        <p>Thông tin thu thập được chỉ sử dụng cho các mục đích cụ thể dưới đây:</p>
+        <ol>
+          <li>Cung cấp và duy trì các chức năng cơ bản của Website (đồng bộ video, đăng bài tự động).</li>
+          <li>Thực hiện phản hồi bình luận và tin nhắn tự động bằng Trí tuệ nhân tạo (AI) dựa trên sự đồng ý của bạn.</li>
+          <li>Gửi thông báo trạng thái vận hành qua Telegram hoặc các nền tảng thông báo do bạn liên kết.</li>
+          <li>Phân tích lỗi hệ thống và tối ưu hóa hiệu năng của máy chủ.</li>
+        </ol>
+      </section>
+
+      <section id="bao-ve" class="section-block">
+        <h2>3. Bảo vệ và Lưu trữ dữ liệu</h2>
+        <p>An toàn thông tin của bạn là ưu tiên hàng đầu của chúng tôi:</p>
+        <ul>
+          <li><strong>Mã hóa:</strong> Toàn bộ các mã truy cập (Access Tokens) của Facebook và TikTok đều được mã hóa bằng thuật toán đối xứng mạnh mẽ trước khi ghi nhận vào cơ sở dữ liệu.</li>
+          <li><strong>Bảo mật máy chủ:</strong> Hệ thống lưu trữ dữ liệu trên máy chủ riêng biệt có tường lửa bảo vệ nghiêm ngặt và không mở cổng truy cập công cộng trực tiếp cho các dịch vụ nhạy cảm.</li>
+          <li><strong>Thời gian lưu trữ:</strong> Dữ liệu cấu hình hệ thống được lưu giữ trọn đời sử dụng tài khoản. Các dữ liệu log và tệp tin tải xuống tạm thời (như video tải từ TikTok) sẽ được tự động dọn dẹp định kỳ sau khi hoàn thành chu trình đăng bài.</li>
+        </ul>
+      </section>
+
+      <section id="chia-se" class="section-block">
+        <h2>4. Chia sẻ thông tin với bên thứ ba</h2>
+        <p>Chúng tôi cam kết không bán, trao đổi hoặc chuyển nhượng dữ liệu cá nhân của bạn cho bất kỳ đơn vị kinh doanh nào khác. Dữ liệu chỉ được trao đổi qua môi trường API bảo mật của:</p>
+        <ul>
+          <li><strong>Facebook Graph API:</strong> Để thực hiện hành vi đăng bài theo yêu cầu của bạn.</li>
+          <li><strong>TikTok API:</strong> Để truy xuất dữ liệu từ các tài khoản/video được liên kết.</li>
+          <li><strong>Các nhà cung cấp AI (Google Gemini, OpenAI):</strong> Chỉ gửi nội dung bình luận cần xử lý dưới dạng ẩn danh (không gửi kèm thông tin cá nhân khách hàng) để lấy phản hồi AI.</li>
+        </ul>
+      </section>
+
+      <section id="quyen-han" class="section-block">
+        <h2>5. Quyền của người dùng</h2>
+        <p>Bạn có toàn quyền kiểm soát dữ liệu liên kết của mình:</p>
+        <ul>
+          <li>Bạn có quyền chỉnh sửa, vô hiệu hóa, hoặc xóa các chiến dịch, cấu hình trang bất kỳ lúc nào trên Dashboard.</li>
+          <li>Bạn có thể chủ động ngắt quyền truy cập của ứng dụng thông qua cài đặt quản lý tích hợp của TikTok hoặc Facebook cá nhân của bạn.</li>
+        </ul>
+      </section>
+
+      <section id="xoa-du-lieu" class="section-block">
+        <h2>6. Hướng dẫn yêu cầu xóa dữ liệu (User Data Deletion)</h2>
+        <p>Theo quy định của Meta (Facebook), chúng tôi cung cấp quy trình xóa dữ liệu rõ ràng đối với các tài khoản kết nối qua Facebook:</p>
+        <p>Nếu bạn muốn gỡ bỏ hoàn toàn dữ liệu của Fanpage hoặc thông tin cá nhân đã lưu trữ trong Hệ thống tự động mạng xã hội của chúng tôi, bạn có thể thực hiện theo một trong hai cách sau:</p>
+        <ol>
+          <li><strong>Thực hiện trên Dashboard:</strong> Truy cập mục <strong>Cài đặt</strong> -> Chọn Fanpage muốn gỡ -> Nhấn <strong>Xóa trang</strong>. Toàn bộ Token và dữ liệu cấu hình liên quan đến trang đó sẽ bị xóa vĩnh viễn khỏi máy chủ của chúng tôi ngay lập tức.</li>
+          <li><strong>Gỡ bỏ qua ứng dụng Facebook cá nhân:</strong>
+            <ul>
+              <li>Truy cập mục <strong>Cài đặt & Quyền riêng tư</strong> trên tài khoản Facebook cá nhân của bạn.</li>
+              <li>Chọn <strong>Tiện ích tích hợp và ứng dụng</strong>.</li>
+              <li>Tìm ứng dụng của chúng tôi và chọn <strong>Gỡ</strong>.</li>
+            </ul>
+          </li>
+          <li><strong>Yêu cầu thủ công:</strong> Gửi yêu cầu xóa dữ liệu đến email hỗ trợ của chúng tôi. Chúng tôi sẽ tiến hành xác minh quyền sở hữu và xóa sạch thông tin liên quan trong vòng 24 đến 48 giờ làm việc.</li>
+        </ol>
+      </section>
+
+      <section id="thay-doi" class="section-block">
+        <h2>7. Thay đổi chính sách bảo mật</h2>
+        <p>Chính sách Bảo mật này có thể được cập nhật định kỳ để phản ánh các thay đổi trong quy trình xử lý dữ liệu hoặc luật bảo vệ thông tin. Mọi thay đổi sẽ được cập nhật trên trang này kèm mốc thời gian cập nhật mới nhất.</p>
+      </section>
+
+      <section id="lien-he" class="section-block">
+        <h2>8. Thông tin liên hệ</h2>
+        <p>Nếu có bất kỳ thắc mắc hoặc câu hỏi nào liên quan đến cách xử lý dữ liệu và Chính sách Bảo mật này, xin vui lòng liên hệ:</p>
+        <p><strong>Email hỗ trợ:</strong> <a href="mailto:support@social-auto.vn" style="color: var(--accent-blue); text-decoration: none;">support@social-auto.vn</a></p>
+      </section>
+    </main>
+  </div>
+
+  <footer>
+    <p>&copy; 2026 Hệ thống tự động mạng xã hội. Bảo lưu mọi quyền.</p>
+  </footer>
+
+  <script>
+    // Smooth navigation active link highlighting
+    const links = document.querySelectorAll('.sidebar-menu-link');
+    const sections = document.querySelectorAll('.section-block');
+
+    function changeLinkState() {
+      let index = sections.length;
+
+      while(--index && window.scrollY + 120 < sections[index].offsetTop) {}
+      
+      links.forEach((link) => link.classList.remove('active'));
+      links[index].classList.add('active');
+    }
+
+    changeLinkState();
+    window.addEventListener('scroll', changeLinkState);
+
+    // Simple script to navigate sidebar items smoothly
+    links.forEach(link => {
+      link.addEventListener('click', function(e) {
+        e.preventDefault();
+        const targetId = this.getAttribute('href');
+        const targetSection = document.querySelector(targetId);
+        window.scrollTo({
+          top: targetSection.offsetTop - 100,
+          behavior: 'smooth'
+        });
+      });
+    });
+  </script>
+</body>
+</html>

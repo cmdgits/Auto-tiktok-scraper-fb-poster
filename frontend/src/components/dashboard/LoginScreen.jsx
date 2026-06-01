@@ -61,63 +61,74 @@ export default function LoginScreen({
               <LoginFeature icon={ShieldCheck} title="Quản trị có kiểm soát" description="Quản lý phiên và quyền." />
             </div>
           </section>
-          <section className="panel-surface mx-auto w-full max-w-[440px] rounded-[34px] p-6 sm:p-8">
-            <div className="flex h-14 w-14 items-center justify-center rounded-[22px] border border-sky-200 bg-sky-50 text-sky-700">
-              <KeyRound className="h-7 w-7" />
-            </div>
-            <div className="mt-6">
-              <div className="text-[11px] uppercase tracking-[0.32em] text-[var(--text-muted)]">Đăng nhập vận hành</div>
-              <h2 className="mt-3 font-display text-[1.55rem] font-semibold text-slate-900 sm:text-[1.7rem]">Vào trạm điều phối</h2>
-              <p className="mt-3 text-sm leading-7 text-[var(--text-soft)]">Dùng tài khoản quản trị hoặc vận hành để bắt đầu.</p>
-            </div>
-            <form onSubmit={handleLogin} className="mt-8 space-y-4">
-              <label className="block space-y-2">
-                <span className="text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Tên đăng nhập</span>
-                <input
-                  type="text"
-                  name="username"
-                  autoComplete="username"
-                  required
-                  disabled={isLoggingIn}
-                  className={FIELD_CLASS}
-                  placeholder="Nhập tên đăng nhập"
-                  value={loginUser}
-                  onChange={(event) => setLoginUser(event.target.value)}
-                />
-              </label>
-              <label className="block space-y-2">
-                <span className="text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Mật khẩu</span>
-                <div className="relative">
+          <div className="flex flex-col gap-4 mx-auto w-full max-w-[440px]">
+            <section className="panel-surface w-full rounded-[34px] p-6 sm:p-8">
+              <div className="flex h-14 w-14 items-center justify-center rounded-[22px] border border-sky-200 bg-sky-50 text-sky-700">
+                <KeyRound className="h-7 w-7" />
+              </div>
+              <div className="mt-6">
+                <div className="text-[11px] uppercase tracking-[0.32em] text-[var(--text-muted)]">Đăng nhập vận hành</div>
+                <h2 className="mt-3 font-display text-[1.55rem] font-semibold text-slate-900 sm:text-[1.7rem]">Vào trạm điều phối</h2>
+                <p className="mt-3 text-sm leading-7 text-[var(--text-soft)]">Dùng tài khoản quản trị hoặc vận hành để bắt đầu.</p>
+              </div>
+              <form onSubmit={handleLogin} className="mt-8 space-y-4">
+                <label className="block space-y-2">
+                  <span className="text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Tên đăng nhập</span>
                   <input
-                    type={showPassword ? 'text' : 'password'}
-                    name="password"
-                    autoComplete="current-password"
-                    spellCheck="false"
+                    type="text"
+                    name="username"
+                    autoComplete="username"
                     required
                     disabled={isLoggingIn}
-                    className={cx(FIELD_CLASS, 'pr-10')}
-                    placeholder="••••••••"
-                    value={loginPass}
-                    onChange={(event) => setLoginPass(event.target.value)}
+                    className={FIELD_CLASS}
+                    placeholder="Nhập tên đăng nhập"
+                    value={loginUser}
+                    onChange={(event) => setLoginUser(event.target.value)}
                   />
-                  <button
-                    type="button"
-                    disabled={isLoggingIn}
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-[var(--text-muted)] hover:text-slate-600 focus:outline-none"
-                  >
-                    {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                  </button>
-                </div>
-              </label>
-              {isLoggingIn ? <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-700">Đang xác thực tài khoản...</div> : null}
-              {loginError ? <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{loginError}</div> : null}
-              <button type="submit" disabled={isLoggingIn} className={cx(BUTTON_PRIMARY, 'w-full')}>
-                <KeyRound className="h-4 w-4" />
-                Đăng nhập vào hệ thống
-              </button>
-            </form>
-          </section>
+                </label>
+                <label className="block space-y-2">
+                  <span className="text-xs uppercase tracking-[0.28em] text-[var(--text-muted)]">Mật khẩu</span>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      name="password"
+                      autoComplete="current-password"
+                      spellCheck="false"
+                      required
+                      disabled={isLoggingIn}
+                      className={cx(FIELD_CLASS, 'pr-10')}
+                      placeholder="••••••••"
+                      value={loginPass}
+                      onChange={(event) => setLoginPass(event.target.value)}
+                    />
+                    <button
+                      type="button"
+                      disabled={isLoggingIn}
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute inset-y-0 right-0 flex items-center pr-3 text-[var(--text-muted)] hover:text-slate-600 focus:outline-none"
+                    >
+                      {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                    </button>
+                  </div>
+                </label>
+                {isLoggingIn ? <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-700">Đang xác thực tài khoản...</div> : null}
+                {loginError ? <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{loginError}</div> : null}
+                <button type="submit" disabled={isLoggingIn} className={cx(BUTTON_PRIMARY, 'w-full')}>
+                  <KeyRound className="h-4 w-4" />
+                  Đăng nhập vào hệ thống
+                </button>
+              </form>
+            </section>
+            <div className="flex items-center justify-center gap-3 text-xs text-[var(--text-muted)]">
+              <a href="/TermsofService.html" target="_blank" rel="noopener noreferrer" className="hover:text-slate-600 hover:underline transition-all">
+                Điều khoản Dịch vụ
+              </a>
+              <span>•</span>
+              <a href="/PrivacyPolicy.html" target="_blank" rel="noopener noreferrer" className="hover:text-slate-600 hover:underline transition-all">
+                Chính sách Bảo mật
+              </a>
+            </div>
+          </div>
         </div>
       </div>
     </div>

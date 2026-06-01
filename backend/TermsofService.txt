@@ -1,0 +1,21 @@
+Chào mừng bạn đến với [Ứng dụng của tôi (sau đây gọi tắt là "Chúng tôi" hoặc "Website"). Bằng việc truy cập và sử dụng dịch vụ của chúng tôi, bao gồm cả việc đăng nhập thông qua tài khoản TikTok, bạn đồng ý tuân thủ và bị ràng buộc bởi các Điều khoản dịch vụ dưới đây.
+1. Chấp thuận các điều khoản
+Nếu bạn không đồng ý với bất kỳ phần nào của các điều khoản này, vui lòng không sử dụng dịch vụ hoặc thực hiện tính năng đăng nhập trên hệ thống của chúng tôi.
+2. Dịch vụ và Đăng nhập qua bên thứ ba (TikTok)
+Website cung cấp tính năng cho phép người dùng đăng nhập nhanh bằng tài khoản TikTok cá nhân.
+Chúng tôi sử dụng các công cụ kết nối chính thức của TikTok (TikTok SDK/API) để xác thực danh tính của bạn.
+Bạn hiểu và đồng ý rằng bạn phải tuân thủ cả Điều khoản dịch vụ riêng của TikTok khi thực hiện hành động này.
+3. Trách nhiệm của người dùng
+Bạn cam kết cung cấp thông tin chính xác khi được yêu cầu và chịu trách nhiệm bảo mật thông tin tài khoản cá nhân của mình.
+Không sử dụng dịch vụ của chúng tôi cho bất kỳ mục đích bất hợp pháp, gian lận, hoặc gây tổn hại đến hệ thống kỹ thuật của Website và bên thứ ba.
+4. Quyền sở hữu trí tuệ
+Toàn bộ nội dung, giao diện, logo, và mã nguồn trên Website này thuộc sở hữu độc quyền của [Tên công ty hoặc Tên cá nhân sở hữu web]. Bạn không được phép sao chép, phân phối hoặc sử dụng lại khi chưa có sự đồng ý bằng văn bản từ chúng tôi.
+5. Giới hạn trách nhiệm
+Chúng tôi nỗ lực tối đa để duy trì dịch vụ hoạt động ổn định. Tuy nhiên, chúng tôi không chịu trách nhiệm cho bất kỳ sự cố gián đoạn dịch vụ nào xuất phát từ lỗi đường truyền internet, lỗi từ phía nền tảng TikTok hoặc các sự kiện bất khả kháng khác.
+6. Thay đổi điều khoản
+Chúng tôi có quyền cập nhật hoặc thay đổi nội dung Điều khoản dịch vụ này bất kỳ lúc nào mà không cần báo trước. Phiên bản mới nhất sẽ được đăng tải trực tiếp tại trang này.
+7. Thông tin liên hệ
+Nếu có bất kỳ câu hỏi hoặc khiếu nại nào liên quan đến Điều khoản dịch vụ này, vui lòng liên hệ với chúng tôi qua:
+
+
+
